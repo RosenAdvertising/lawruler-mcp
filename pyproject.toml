@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lawruler-mcp"
+version = "0.1.0"
+description = "LawRuler Legal CRM MCP server for lead and intake management"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+lawruler-mcp = "lawruler_mcp.server:main"
+lawruler-mcp-setup = "lawruler_mcp.setup.oauth_flow:main"
+lawruler-mcp-verify = "lawruler_mcp.setup.verify:main"
