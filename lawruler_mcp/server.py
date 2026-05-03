@@ -294,7 +294,14 @@ def update_lead_fields(
     if language:
         fields["Language"] = language
     if custom_fields_json:
-        custom = json.loads(custom_fields_json)
+        try:
+            custom = json.loads(custom_fields_json)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"Invalid custom_fields_json: {e}"})
+        RESERVED = {"LeadID", "overridelead", "Key", "ReturnJSON", "Operation"}
+        bad = RESERVED & set(custom.keys())
+        if bad:
+            return json.dumps({"error": f"Reserved keys in custom_fields_json: {bad}"})
         fields.update(custom)
     return json.dumps(_c().update_lead(lead_id, override=True, **fields), indent=2)
 

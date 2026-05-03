@@ -76,22 +76,8 @@ class LawRulerClient:
         raise RuntimeError("Max retries exceeded")
 
     def _get(self, params: dict) -> dict:
-        params["Key"] = API_KEY
-        for attempt in range(3):
-            resp = self.session.get(self.endpoint, params=params)
-            if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 10))
-                time.sleep(retry_after)
-                continue
-            if not resp.ok:
-                raise RuntimeError(f"LawRuler API error {resp.status_code}: {resp.text[:400]}")
-            text = resp.text.strip()
-            if text.startswith("{") or text.startswith("["):
-                return json.loads(text)
-            if text.startswith("<"):
-                return _xml_to_dict(text)
-            return {"response": text}
-        raise RuntimeError("Max retries exceeded")
+        # LawRuler API is POST-only; Key must be in POST body, not query string.
+        return self._post(params)
 
     # ── Leads / Intakes ────────────────────────────────────────────────────────
 
@@ -203,7 +189,7 @@ class LawRulerClient:
 
     def update_lead(self, lead_id: int, override: bool = True, **fields) -> dict:
         data = {
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "ReturnJSON": "True",
         }
         if override:
@@ -217,19 +203,20 @@ class LawRulerClient:
         return self._post({
             "Operation": "GetStatus",
             "ReturnJSON": "True",
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
         })
 
     def update_lead_status(self, lead_id: int, status: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "Status": status,
+            "overridelead": "true",
             "ReturnJSON": "True",
         })
 
     def update_lead_assignee(self, lead_id: int, assignee: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "LeadAssignee": assignee,
             "overridelead": "true",
             "ReturnJSON": "True",
@@ -237,7 +224,7 @@ class LawRulerClient:
 
     def update_lead_owner(self, lead_id: int, owner: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "LeadOwner": owner,
             "overridelead": "true",
             "ReturnJSON": "True",
@@ -245,14 +232,15 @@ class LawRulerClient:
 
     def add_tags_to_lead(self, lead_id: int, tags: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "Tags": tags,
+            "overridelead": "true",
             "ReturnJSON": "True",
         })
 
     def update_lead_case_type(self, lead_id: int, case_type: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "CaseType": case_type,
             "overridelead": "true",
             "ReturnJSON": "True",
@@ -260,7 +248,7 @@ class LawRulerClient:
 
     def update_lead_summary(self, lead_id: int, summary: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "Summary": summary,
             "overridelead": "true",
             "ReturnJSON": "True",
@@ -268,22 +256,26 @@ class LawRulerClient:
 
     def add_conversation_note(self, lead_id: int, conversation: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "Conversation": conversation,
+            "overridelead": "true",
             "ReturnJSON": "True",
         })
 
     def update_lead_language(self, lead_id: int, language: str) -> dict:
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "Language": language,
             "overridelead": "true",
             "ReturnJSON": "True",
         })
 
     def set_custom_field(self, lead_id: int, field_name: str, value: str) -> dict:
+        RESERVED = {"LeadID", "overridelead", "Key", "ReturnJSON", "Operation"}
+        if field_name in RESERVED:
+            raise ValueError(f"'{field_name}' is a reserved parameter name")
         return self._post({
-            "LeadId": str(lead_id),
+            "LeadID": str(lead_id),
             "overridelead": "true",
             "ReturnJSON": "True",
             field_name: value,
@@ -306,7 +298,7 @@ class LawRulerClient:
         state: str = "",
         zip_code: str = "",
     ) -> dict:
-        data = {"LeadId": str(lead_id), "overridelead": "true", "ReturnJSON": "True"}
+        data = {"LeadID": str(lead_id), "overridelead": "true", "ReturnJSON": "True"}
         if cell_phone:
             data["CellPhone"] = cell_phone
         if home_phone:
