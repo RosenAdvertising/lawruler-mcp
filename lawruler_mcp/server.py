@@ -298,8 +298,10 @@ def update_lead_fields(
             custom = json.loads(custom_fields_json)
         except json.JSONDecodeError as e:
             return json.dumps({"error": f"Invalid custom_fields_json: {e}"})
-        RESERVED = {"LeadID", "overridelead", "Key", "ReturnJSON", "Operation"}
-        bad = RESERVED & set(custom.keys())
+        if not isinstance(custom, dict):
+            return json.dumps({"error": "custom_fields_json must be a JSON object"})
+        RESERVED = {"leadid", "overridelead", "key", "returnjson", "returnxml", "operation"}
+        bad = RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
             return json.dumps({"error": f"Reserved keys in custom_fields_json: {bad}"})
         fields.update(custom)

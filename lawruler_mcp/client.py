@@ -57,7 +57,10 @@ class LawRulerClient:
         for attempt in range(3):
             resp = self.session.post(self.endpoint, data=data)
             if resp.status_code == 429:
-                retry_after = int(resp.headers.get("Retry-After", 10))
+                try:
+                    retry_after = int(resp.headers.get("Retry-After", 10))
+                except (ValueError, TypeError):
+                    retry_after = 10
                 print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
                 time.sleep(retry_after)
                 continue
@@ -271,8 +274,8 @@ class LawRulerClient:
         })
 
     def set_custom_field(self, lead_id: int, field_name: str, value: str) -> dict:
-        RESERVED = {"LeadID", "overridelead", "Key", "ReturnJSON", "Operation"}
-        if field_name in RESERVED:
+        RESERVED = {"leadid", "overridelead", "key", "returnjson", "returnxml", "operation"}
+        if field_name.casefold() in RESERVED:
             raise ValueError(f"'{field_name}' is a reserved parameter name")
         return self._post({
             "LeadID": str(lead_id),
@@ -284,6 +287,8 @@ class LawRulerClient:
     def create_lead_with_custom_fields(self, custom_fields_json: str, **standard_fields) -> dict:
         """Create a lead with both standard and custom fields."""
         custom = json.loads(custom_fields_json) if custom_fields_json else {}
+        if not isinstance(custom, dict):
+            raise ValueError("custom_fields_json must be a JSON object")
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
         return self._post(data)
 
