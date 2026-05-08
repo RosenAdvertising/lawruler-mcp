@@ -4,10 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lawruler-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "LawRuler Legal CRM MCP server for lead and intake management"
-license = "MIT"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "claude"]
 dependencies = [
     "mcp[cli]>=1.0.0",
     "requests>=2.31.0",
@@ -18,3 +20,7 @@ dependencies = [
 lawruler-mcp = "lawruler_mcp.server:main"
 lawruler-mcp-setup = "lawruler_mcp.setup.oauth_flow:main"
 lawruler-mcp-verify = "lawruler_mcp.setup.verify:main"
+
+[project.urls]
+Homepage = "https://github.com/RosenAdvertising/lawruler-mcp"
+Issues = "https://github.com/RosenAdvertising/lawruler-mcp/issues"
