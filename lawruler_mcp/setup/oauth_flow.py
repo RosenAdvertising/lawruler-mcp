@@ -16,7 +16,7 @@ def test_connection(base_url: str, api_key: str) -> str:
         "Key": api_key,
         "Operation": "GetStatus",
         "ReturnJSON": "True",
-        "LeadId": "1",
+        "LeadID": "1",
     })
     return resp.status_code, resp.text[:300]
 

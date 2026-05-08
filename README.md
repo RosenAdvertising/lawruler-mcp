@@ -1,6 +1,6 @@
 # lawruler-mcp
 
-MCP server for LawRuler Legal CRM. Provides 19 tools for lead/intake creation, retrieval, and management.
+MCP server for LawRuler Legal CRM. Provides 15 tools for lead/intake creation, retrieval, and management.
 
 ## Setup
 
@@ -33,7 +33,7 @@ LAWRULER_API_KEY=your_api_key
 
 Find your API key in LawRuler: **Setup → 3rd Party Integrations**
 
-## Tools (19)
+## Tools (15)
 
 **Create Leads**
 - `create_lead` — core fields (name, phone, email, case type)
