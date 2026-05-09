@@ -53,6 +53,7 @@ class LawRulerClient:
         self.session = requests.Session()
 
     def _post(self, data: dict) -> dict:
+        data = dict(data)
         data["Key"] = API_KEY
         for attempt in range(3):
             resp = self.session.post(self.endpoint, data=data)
@@ -69,10 +70,19 @@ class LawRulerClient:
             # Try JSON first, fall back to text
             ct = resp.headers.get("Content-Type", "")
             if "json" in ct:
-                return resp.json()
+                try:
+                    return resp.json()
+                except ValueError:
+                    raise RuntimeError(
+                        f"LawRuler API returned invalid JSON ({resp.status_code}): "
+                        f"{resp.text[:200]}"
+                    )
             text = resp.text.strip()
             if text.startswith("{") or text.startswith("["):
-                return json.loads(text)
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(f"LawRuler API returned invalid JSON: {e}")
             if text.startswith("<"):
                 return _xml_to_dict(text)
             return {"response": text}
