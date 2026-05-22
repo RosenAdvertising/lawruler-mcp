@@ -24,3 +24,10 @@ lawruler-mcp-verify = "lawruler_mcp.setup.verify:main"
 [project.urls]
 Homepage = "https://github.com/RosenAdvertising/lawruler-mcp"
 Issues = "https://github.com/RosenAdvertising/lawruler-mcp/issues"
+
+[tool.pyright]
+include = ["."]
+exclude = ["**/node_modules", "**/__pycache__", ".venv", "venv", "dist", "build"]
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
+reportMissingTypeStubs = false
