@@ -31,7 +31,9 @@ BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
 
 def _endpoint():
     if not API_KEY or not BASE_URL:
-        raise RuntimeError("LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup.")
+        raise RuntimeError(
+            "LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup."
+        )
     return f"{BASE_URL}/api-legalcrmapp.aspx"
 
 
@@ -66,7 +68,9 @@ class LawRulerClient:
                 time.sleep(retry_after)
                 continue
             if not resp.ok:
-                raise RuntimeError(f"LawRuler API error {resp.status_code}: {resp.text[:400]}")
+                raise RuntimeError(
+                    f"LawRuler API error {resp.status_code}: {resp.text[:400]}"
+                )
             # Try JSON first, fall back to text
             ct = resp.headers.get("Content-Type", "")
             if "json" in ct:
@@ -213,88 +217,117 @@ class LawRulerClient:
         return self._post(data)
 
     def get_lead(self, lead_id: int) -> dict:
-        return self._post({
-            "Operation": "GetStatus",
-            "ReturnJSON": "True",
-            "LeadID": str(lead_id),
-        })
+        return self._post(
+            {
+                "Operation": "GetStatus",
+                "ReturnJSON": "True",
+                "LeadID": str(lead_id),
+            }
+        )
 
     def update_lead_status(self, lead_id: int, status: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "Status": status,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "Status": status,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def update_lead_assignee(self, lead_id: int, assignee: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "LeadAssignee": assignee,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "LeadAssignee": assignee,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def update_lead_owner(self, lead_id: int, owner: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "LeadOwner": owner,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "LeadOwner": owner,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def add_tags_to_lead(self, lead_id: int, tags: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "Tags": tags,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "Tags": tags,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def update_lead_case_type(self, lead_id: int, case_type: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "CaseType": case_type,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "CaseType": case_type,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def update_lead_summary(self, lead_id: int, summary: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "Summary": summary,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "Summary": summary,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def add_conversation_note(self, lead_id: int, conversation: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "Conversation": conversation,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "Conversation": conversation,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def update_lead_language(self, lead_id: int, language: str) -> dict:
-        return self._post({
-            "LeadID": str(lead_id),
-            "Language": language,
-            "overridelead": "true",
-            "ReturnJSON": "True",
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "Language": language,
+                "overridelead": "true",
+                "ReturnJSON": "True",
+            }
+        )
 
     def set_custom_field(self, lead_id: int, field_name: str, value: str) -> dict:
-        RESERVED = {"leadid", "overridelead", "key", "returnjson", "returnxml", "operation"}
+        RESERVED = {
+            "leadid",
+            "overridelead",
+            "key",
+            "returnjson",
+            "returnxml",
+            "operation",
+        }
         if field_name.casefold() in RESERVED:
             raise ValueError(f"'{field_name}' is a reserved parameter name")
-        return self._post({
-            "LeadID": str(lead_id),
-            "overridelead": "true",
-            "ReturnJSON": "True",
-            field_name: value,
-        })
+        return self._post(
+            {
+                "LeadID": str(lead_id),
+                "overridelead": "true",
+                "ReturnJSON": "True",
+                field_name: value,
+            }
+        )
 
-    def create_lead_with_custom_fields(self, custom_fields_json: str, **standard_fields) -> dict:
+    def create_lead_with_custom_fields(
+        self, custom_fields_json: str, **standard_fields
+    ) -> dict:
         """Create a lead with both standard and custom fields."""
         custom = json.loads(custom_fields_json) if custom_fields_json else {}
         if not isinstance(custom, dict):

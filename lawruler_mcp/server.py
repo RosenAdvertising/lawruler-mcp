@@ -22,6 +22,7 @@ def _c():
 
 # ── Create Leads / Intakes ─────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def create_lead(
     first_name: str = "",
@@ -40,22 +41,25 @@ def create_lead(
     language: str = "",
 ) -> str:
     """Create a new lead/intake. FirstName+LastName or FullName required. CellPhone and Email strongly recommended."""
-    return json.dumps(_c().create_lead(
-        first_name=first_name,
-        last_name=last_name,
-        full_name=full_name,
-        cell_phone=cell_phone,
-        email=email,
-        case_type=case_type,
-        lead_provider=lead_provider,
-        status=status,
-        summary=summary,
-        lead_assignee=lead_assignee,
-        lead_owner=lead_owner,
-        hear=hear,
-        tags=tags,
-        language=language,
-    ), indent=2)
+    return json.dumps(
+        _c().create_lead(
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
+            cell_phone=cell_phone,
+            email=email,
+            case_type=case_type,
+            lead_provider=lead_provider,
+            status=status,
+            summary=summary,
+            lead_assignee=lead_assignee,
+            lead_owner=lead_owner,
+            hear=hear,
+            tags=tags,
+            language=language,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -92,38 +96,41 @@ def create_lead_full(
     language: str = "",
 ) -> str:
     """Create a new lead/intake with full field set including address, DOB, and contact preferences."""
-    return json.dumps(_c().create_lead(
-        first_name=first_name,
-        last_name=last_name,
-        full_name=full_name,
-        cell_phone=cell_phone,
-        email=email,
-        email2=email2,
-        case_type=case_type,
-        lead_provider=lead_provider,
-        status=status,
-        summary=summary,
-        address1=address1,
-        address2=address2,
-        city=city,
-        state=state,
-        zip_code=zip_code,
-        county=county,
-        home_phone=home_phone,
-        business_phone=business_phone,
-        business_name=business_name,
-        dob=dob,
-        lead_assignee=lead_assignee,
-        lead_owner=lead_owner,
-        hear=hear,
-        tags=tags,
-        contact_preference=contact_preference,
-        when_to_contact=when_to_contact,
-        case_role=case_role,
-        contact_type=contact_type,
-        campaign_name=campaign_name,
-        language=language,
-    ), indent=2)
+    return json.dumps(
+        _c().create_lead(
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
+            cell_phone=cell_phone,
+            email=email,
+            email2=email2,
+            case_type=case_type,
+            lead_provider=lead_provider,
+            status=status,
+            summary=summary,
+            address1=address1,
+            address2=address2,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            county=county,
+            home_phone=home_phone,
+            business_phone=business_phone,
+            business_name=business_name,
+            dob=dob,
+            lead_assignee=lead_assignee,
+            lead_owner=lead_owner,
+            hear=hear,
+            tags=tags,
+            contact_preference=contact_preference,
+            when_to_contact=when_to_contact,
+            case_role=case_role,
+            contact_type=contact_type,
+            campaign_name=campaign_name,
+            language=language,
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -139,21 +146,25 @@ def create_lead_obo(
     lead_assignee: str = "",
 ) -> str:
     """Create a lead with duplicate checking disabled (for On-Behalf-Of cases where the same contact has multiple matters)."""
-    return json.dumps(_c().create_lead(
-        first_name=first_name,
-        last_name=last_name,
-        full_name=full_name,
-        cell_phone=cell_phone,
-        email=email,
-        case_type=case_type,
-        lead_provider=lead_provider,
-        summary=summary,
-        lead_assignee=lead_assignee,
-        disable_dup_check=True,
-    ), indent=2)
+    return json.dumps(
+        _c().create_lead(
+            first_name=first_name,
+            last_name=last_name,
+            full_name=full_name,
+            cell_phone=cell_phone,
+            email=email,
+            case_type=case_type,
+            lead_provider=lead_provider,
+            summary=summary,
+            lead_assignee=lead_assignee,
+            disable_dup_check=True,
+        ),
+        indent=2,
+    )
 
 
 # ── Retrieve Leads ─────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def get_lead(lead_id: int) -> str:
@@ -162,6 +173,7 @@ def get_lead(lead_id: int) -> str:
 
 
 # ── Update Lead Status & Assignment ───────────────────────────────────────────
+
 
 @mcp.tool()
 def update_lead_status(lead_id: int, status: str) -> str:
@@ -191,6 +203,7 @@ def update_lead_case_type(lead_id: int, case_type: str) -> str:
 
 # ── Update Lead Content ────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def update_lead_summary(lead_id: int, summary: str) -> str:
     """Update the case description/summary for a lead."""
@@ -217,6 +230,7 @@ def update_lead_language(lead_id: int, language: str) -> str:
 
 # ── Update Contact Info ────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def update_lead_contact_info(
     lead_id: int,
@@ -229,19 +243,23 @@ def update_lead_contact_info(
     zip_code: str = "",
 ) -> str:
     """Update contact information fields on a lead (phone, email, address)."""
-    return json.dumps(_c().update_lead_contact_info(
-        lead_id=lead_id,
-        cell_phone=cell_phone,
-        home_phone=home_phone,
-        email=email,
-        address1=address1,
-        city=city,
-        state=state,
-        zip_code=zip_code,
-    ), indent=2)
+    return json.dumps(
+        _c().update_lead_contact_info(
+            lead_id=lead_id,
+            cell_phone=cell_phone,
+            home_phone=home_phone,
+            email=email,
+            address1=address1,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+        ),
+        indent=2,
+    )
 
 
 # ── Custom Fields ─────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def set_custom_field(lead_id: int, field_name: str, value: str) -> str:
@@ -300,7 +318,14 @@ def update_lead_fields(
             return json.dumps({"error": f"Invalid custom_fields_json: {e}"})
         if not isinstance(custom, dict):
             return json.dumps({"error": "custom_fields_json must be a JSON object"})
-        RESERVED = {"leadid", "overridelead", "key", "returnjson", "returnxml", "operation"}
+        RESERVED = {
+            "leadid",
+            "overridelead",
+            "key",
+            "returnjson",
+            "returnxml",
+            "operation",
+        }
         bad = RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
             return json.dumps({"error": f"Reserved keys in custom_fields_json: {bad}"})

@@ -9,7 +9,9 @@ from lawruler_mcp.client import LawRulerClient, BASE_URL, API_KEY
 def main():
     print("Verifying LawRuler MCP credentials...")
     if not API_KEY or not BASE_URL:
-        print("✗ LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup.")
+        print(
+            "✗ LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup."
+        )
         sys.exit(1)
 
     print(f"  Portal: {BASE_URL}")

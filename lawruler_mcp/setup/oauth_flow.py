@@ -12,12 +12,15 @@ CONFIG_DIR = Path.home() / ".lawruler-mcp"
 
 def test_connection(base_url: str, api_key: str) -> str:
     endpoint = f"{base_url.rstrip('/')}/api-legalcrmapp.aspx"
-    resp = requests.post(endpoint, data={
-        "Key": api_key,
-        "Operation": "GetStatus",
-        "ReturnJSON": "True",
-        "LeadID": "1",
-    })
+    resp = requests.post(
+        endpoint,
+        data={
+            "Key": api_key,
+            "Operation": "GetStatus",
+            "ReturnJSON": "True",
+            "LeadID": "1",
+        },
+    )
     return resp.status_code, resp.text[:300]
 
 
@@ -67,13 +70,9 @@ def main():
     print(f"✓ Config saved to {CONFIG_DIR}")
     print()
     print("Add to your Claude Desktop config:")
-    print(json.dumps({
-        "mcpServers": {
-            "lawruler": {
-                "command": "lawruler-mcp"
-            }
-        }
-    }, indent=2))
+    print(
+        json.dumps({"mcpServers": {"lawruler": {"command": "lawruler-mcp"}}}, indent=2)
+    )
 
 
 if __name__ == "__main__":
