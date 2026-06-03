@@ -10,7 +10,7 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".lawruler-mcp"
 
 
-def test_connection(base_url: str, api_key: str) -> str:
+def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
     endpoint = f"{base_url.rstrip('/')}/api-legalcrmapp.aspx"
     resp = requests.post(
         endpoint,
