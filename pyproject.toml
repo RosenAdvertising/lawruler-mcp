@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "claude"]
 dependencies = [
-    "mcp[cli]>=1.0.0",
+    "mcp[cli]>=1.27.2",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
 ]
