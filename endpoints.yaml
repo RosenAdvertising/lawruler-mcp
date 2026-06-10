@@ -1,0 +1,31 @@
+tools:
+  - name: create_lead
+    read_write: write
+  - name: create_lead_full
+    read_write: write
+  - name: create_lead_obo
+    read_write: write
+  - name: get_lead
+    read_write: read
+  - name: update_lead_status
+    read_write: write
+  - name: update_lead_assignee
+    read_write: write
+  - name: update_lead_owner
+    read_write: write
+  - name: update_lead_case_type
+    read_write: write
+  - name: update_lead_summary
+    read_write: write
+  - name: add_conversation_note
+    read_write: write
+  - name: add_tags_to_lead
+    read_write: write
+  - name: update_lead_language
+    read_write: write
+  - name: update_lead_contact_info
+    read_write: write
+  - name: set_custom_field
+    read_write: write
+  - name: update_lead_fields
+    read_write: write
