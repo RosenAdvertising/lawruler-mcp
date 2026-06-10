@@ -333,6 +333,171 @@ def update_lead_fields(
     return json.dumps(_c().update_lead(lead_id, override=True, **fields), indent=2)
 
 
+# ── Resources ─────────────────────────────────────────────────────────────────
+
+
+@mcp.resource("lawruler://lead_status_options", mime_type="application/json")
+def lead_status_options_resource() -> str:
+    """Common lead/intake status values — read-only reference data for classification."""
+    return json.dumps(
+        {
+            "statuses": [
+                "New Lead",
+                "Emailed Intake Questionnaire",
+                "Sent Retainer Contract",
+                "Signed Retainer Contract",
+                "Converted to Case",
+                "Approved",
+                "Not Retained",
+                "Duplicate",
+            ],
+            "note": "Firm-specific custom statuses may also exist. Use get_lead to verify current value.",
+        },
+        indent=2,
+    )
+
+
+@mcp.resource("lawruler://lead_fields_reference", mime_type="application/json")
+def lead_fields_reference_resource() -> str:
+    """Reference guide for LawRuler lead/intake field names and usage."""
+    return json.dumps(
+        {
+            "required_for_most_operations": ["CellPhone", "Email"],
+            "name_fields": {
+                "FirstName+LastName": "preferred for new leads",
+                "FullName": "fallback when split name not available",
+            },
+            "classification_fields": ["Status", "CaseType", "LeadProvider", "Tags"],
+            "assignment_fields": ["LeadAssignee", "LeadOwner"],
+            "contact_fields": [
+                "CellPhone",
+                "HomePhone",
+                "Email",
+                "Address1",
+                "City",
+                "State",
+                "Zip",
+            ],
+            "reserved_params_blocked": [
+                "LeadID",
+                "overridelead",
+                "Key",
+                "ReturnJSON",
+                "ReturnXML",
+                "Operation",
+            ],
+            "sensitive_fields": {
+                "SSN": "NOT exposed as a tool parameter — must be handled client-side. Never echo SSN in outputs.",
+                "DOB": "Available in create_lead_full; minimize use.",
+            },
+        },
+        indent=2,
+    )
+
+
+@mcp.resource("lawruler://security-notes", mime_type="text/markdown")
+def security_notes_resource() -> str:
+    """Security posture documentation for this LawRuler MCP server."""
+    return """\
+# LawRuler MCP — Security Notes
+
+## SSN handling
+
+`ssn` exists as a parameter in the underlying `create_lead` client method but is
+**intentionally excluded** from all MCP tool signatures (`create_lead`,
+`create_lead_full`, `create_lead_obo`). SSN must be provided directly by the
+client via a secure channel, not relayed through the agent layer.
+
+Agents MUST:
+- Never echo SSN back in any output, log, or Telegram message.
+- Minimize PII generally — collect only what is required for the intake step.
+- If a conversation contains SSN, treat it as read-once; do not store or repeat it.
+
+## Reserved-parameter injection guard
+
+LawRuler's API is a single POST endpoint. Parameters like `LeadID`,
+`overridelead`, `Key`, `ReturnJSON`, `ReturnXML`, and `Operation` are system
+parameters that control API behavior. An attacker injecting these via a
+`custom_fields_json` payload could manipulate record routing or override existing
+records unexpectedly.
+
+**Mitigations in place (as of wt/secfix):**
+- `set_custom_field` raises `ValueError` if `field_name` matches any reserved param (case-insensitive).
+- `update_lead_fields` blocks reserved keys in the `custom_fields_json` dict before the API call.
+- `create_lead_with_custom_fields` (client layer) does NOT enforce this blocklist — agents
+  should prefer the MCP tools over calling the client directly.
+
+**Reserved keys (case-insensitive):** `leadid`, `overridelead`, `key`, `returnjson`,
+`returnxml`, `operation`.
+
+## Authentication
+
+`LAWRULER_API_KEY` and `LAWRULER_BASE_URL` are loaded via the pluggable credentials
+store (OS keyring -> `.env`). The key is injected into POST body at call time only
+and is never logged.
+"""
+
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+
+@mcp.prompt()
+def new_intake_workflow(
+    contact_name: str, phone: str, email: str, case_type: str
+) -> str:
+    """Step-by-step intake creation workflow grounded in LawRuler tools."""
+    return f"""You are a legal intake coordinator. Create a new lead/intake for:
+  Name: {contact_name}
+  Phone: {phone}
+  Email: {email}
+  Case type: {case_type}
+
+Follow this sequence:
+1. Call create_lead with the provided name, cell_phone, email, and case_type.
+   - Set status to 'New Lead'.
+   - SECURITY: Minimize PII. Do not include SSN — that must be collected via a secure channel, not this tool.
+   - Do not echo sensitive fields back in your output.
+2. Record the returned LeadID.
+3. If a summary of the matter is available from trusted internal notes, call update_lead_summary with the LeadID.
+4. Assign to the appropriate staff member with update_lead_assignee.
+5. Verify the record with get_lead and confirm: name, phone, email, status, case type are all correct.
+6. Report the LeadID and confirmed status. Flag any field that did not save correctly."""
+
+
+@mcp.prompt()
+def intake_status_progression(lead_id: int) -> str:
+    """Guide a lead through the retainer-signing pipeline using LawRuler status tools."""
+    return f"""Manage intake pipeline for LeadID {lead_id}.
+
+1. Retrieve current state with get_lead({lead_id}).
+2. Identify the current Status and the appropriate next step:
+   - 'New Lead' -> send intake questionnaire -> update_lead_status({lead_id}, 'Emailed Intake Questionnaire')
+   - 'Emailed Intake Questionnaire' -> if questionnaire received -> update_lead_status({lead_id}, 'Sent Retainer Contract')
+   - 'Sent Retainer Contract' -> if signed -> update_lead_status({lead_id}, 'Signed Retainer Contract')
+   - 'Signed Retainer Contract' -> update_lead_status({lead_id}, 'Converted to Case')
+3. After each status update, confirm with get_lead that the status persisted.
+4. Add a conversation note via add_conversation_note summarizing the action taken (no SSN, minimal PII).
+5. Report: current status -> action taken -> new status."""
+
+
+@mcp.prompt()
+def lead_triage_report() -> str:
+    """Identify leads needing immediate attention by reviewing a set of known LeadIDs."""
+    return """Triage recent leads to identify priority follow-ups.
+
+Note: LawRuler's API does not expose a bulk list endpoint; triage should be driven
+by a known set of LeadIDs (e.g. from a CRM dashboard export or webhook batch).
+
+For each LeadID in your current working set:
+1. Call get_lead(lead_id) to retrieve current status and contact info.
+2. Classify priority:
+   - URGENT: Status is 'New Lead' and created more than 24 h ago (check timestamps if available).
+   - HIGH: Status is 'Emailed Intake Questionnaire' with no response noted.
+   - NORMAL: Status is progressing on schedule.
+3. Output a triage table: LeadID | Name | Status | Priority | Recommended Action.
+4. SECURITY: Omit SSN and DOB from any output. Show only name, status, and contact method."""
+
+
 def main():
     mcp.run()
 
