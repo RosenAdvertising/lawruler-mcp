@@ -120,6 +120,12 @@ class LawRulerClient:
         business_name: str = "",
         email2: str = "",
         dob: str = "",
+        # SECURITY: ``ssn`` is intentionally excluded from the MCP server tool
+        # (server.py ``create_lead_full``) to prevent SSN from transiting Claude's
+        # context window, appearing in conversation logs, or being visible to
+        # intermediate MCP layers.  This parameter exists only for direct
+        # programmatic use of the client outside the MCP layer.  Do NOT expose
+        # it via any MCP tool signature.
         ssn: str = "",
         lead_assignee: str = "",
         lead_owner: str = "",
@@ -325,13 +331,27 @@ class LawRulerClient:
             }
         )
 
+    # Parameters that must never be overridden by caller-supplied JSON.
+    _RESERVED = frozenset(
+        {"key", "operation", "leadid", "overridelead", "returnjson", "returnxml"}
+    )
+
     def create_lead_with_custom_fields(
         self, custom_fields_json: str, **standard_fields
     ) -> dict:
-        """Create a lead with both standard and custom fields."""
+        """Create a lead with both standard and custom fields.
+
+        ``custom_fields_json`` is deserialized and merged into the POST body.  Keys
+        matching reserved LawRuler parameters (``key``, ``operation``, ``leadid``,
+        ``overridelead``, ``returnjson``, ``returnxml``) are rejected to prevent a
+        caller from injecting an ``Operation=DeleteAll`` or similar payload.
+        """
         custom = json.loads(custom_fields_json) if custom_fields_json else {}
         if not isinstance(custom, dict):
             raise ValueError("custom_fields_json must be a JSON object")
+        bad = self._RESERVED & {str(k).casefold() for k in custom.keys()}
+        if bad:
+            raise ValueError(f"Reserved keys in custom_fields_json: {bad}")
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
         return self._post(data)
 
