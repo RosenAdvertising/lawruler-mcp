@@ -2,12 +2,10 @@
 """LawRuler MCP setup — API key + portal URL configuration."""
 
 import json
-import os
 import sys
 import requests
-from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".lawruler-mcp"
+from lawruler_mcp import credentials
 
 
 def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
@@ -57,17 +55,15 @@ def main():
     else:
         print(f"✓ Endpoint reached (HTTP {status_code})")
 
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    credentials.set_secret("LAWRULER_BASE_URL", base_url)
+    backend = credentials.set_secret("LAWRULER_API_KEY", api_key)
 
-    env_file = CONFIG_DIR / ".env"
-    env_file.write_text(
-        f"# LawRuler MCP configuration\n"
-        f"LAWRULER_BASE_URL={base_url}\n"
-        f"LAWRULER_API_KEY={api_key}\n"
-    )
-    os.chmod(env_file, 0o600)
-
-    print(f"✓ Config saved to {CONFIG_DIR}")
+    if backend == "keyring":
+        print(
+            f"✓ Credentials saved to the OS keyring ({credentials.storage_backend()})."
+        )
+    else:
+        print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
     print()
     print("Add to your Claude Desktop config:")
     print(

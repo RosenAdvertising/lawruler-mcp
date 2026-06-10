@@ -28,14 +28,40 @@ lawruler-mcp-verify  # test connection
 
 ## Credentials
 
-Set via `~/.lawruler-mcp/.env` (created by setup wizard):
+The setup wizard prompts for your portal URL (`LAWRULER_BASE_URL`) and API key
+(`LAWRULER_API_KEY`). Find your API key in LawRuler:
+**Setup → 3rd Party Integrations**.
+
+By default both values are stored in your operating system's native secret store
+via the cross-platform [`keyring`](https://github.com/jaraco/keyring) library:
+
+| OS      | Backend                                  |
+| ------- | ---------------------------------------- |
+| macOS   | Keychain                                 |
+| Windows | Credential Manager                       |
+| Linux   | Secret Service (GNOME Keyring / KWallet) |
+
+Secrets are saved under the service name `lawruler-mcp`. Nothing is written to
+disk in clear text.
+
+**File fallback.** On a host with no keyring backend (e.g. a headless Linux box
+without Secret Service), or if you set `LAWRULER_MCP_USE_KEYRING=0`, the values
+fall back to a `~/.lawruler-mcp/.env` file with `0600` permissions:
 
 ```text
 LAWRULER_BASE_URL=https://yourfirm.lawruler.com
 LAWRULER_API_KEY=your_api_key
 ```
 
-Find your API key in LawRuler: **Setup → 3rd Party Integrations**
+**Read order.** Values resolve in the order OS keyring → process environment →
+`.env` file. So a rotated key in the keyring always wins, and a value exported in
+your shell overrides the file fallback without touching the keyring.
+
+**Pluggable backend.** `keyring` lets you point at any secret store. For example,
+install [`keyrings.cryptfile`](https://pypi.org/project/keyrings.cryptfile/) for
+an encrypted file backend, or a cloud backend, then select it with the standard
+`PYTHON_KEYRING_BACKEND` environment variable or a `keyringrc.cfg`. See the
+[keyring configuration docs](https://github.com/jaraco/keyring#configuring).
 
 ## Tools (15)
 

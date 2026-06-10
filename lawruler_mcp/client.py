@@ -7,23 +7,11 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 import requests
-from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".lawruler-mcp"
+from lawruler_mcp import credentials
 
-
-def _load_env():
-    env_file = CONFIG_DIR / ".env"
-    if env_file.exists():
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, val = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), val.strip())
-
-
-_load_env()
+# Resolve credentials through the pluggable store (OS keyring -> .env file).
+credentials.load_into_environ(["LAWRULER_API_KEY", "LAWRULER_BASE_URL"])
 
 API_KEY = os.environ.get("LAWRULER_API_KEY", "")
 BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
