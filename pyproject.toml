@@ -13,7 +13,7 @@ keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "cla
 dependencies = [
     "mcp[cli]>=1.27.2",
     "requests>=2.31.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     "keyring>=25.7.0",
 ]
 
