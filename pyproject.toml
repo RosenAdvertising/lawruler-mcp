@@ -11,10 +11,17 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "claude"]
 dependencies = [
+    "defusedxml>=0.7.1,<1",
     "mcp[cli]>=1.27.2,<2",
     "requests>=2.34.2",
     "python-dotenv>=1.2.2",
     "keyring>=25.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9,<10",
+    "pytest-cov>=7,<8",
 ]
 
 [project.scripts]

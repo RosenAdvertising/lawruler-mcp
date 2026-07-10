@@ -5,8 +5,8 @@ import json
 import os
 import sys
 import time
-import xml.etree.ElementTree as ET
 import requests
+from defusedxml import ElementTree as ET
 
 from lawruler_mcp import credentials
 
@@ -15,6 +15,7 @@ credentials.load_into_environ(["LAWRULER_API_KEY", "LAWRULER_BASE_URL"])
 
 API_KEY = os.environ.get("LAWRULER_API_KEY", "")
 BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
+REQUEST_TIMEOUT = (3.05, 30)
 
 
 def _endpoint():
@@ -28,7 +29,12 @@ def _endpoint():
 def _xml_to_dict(xml_str: str) -> dict:
     """Parse LawRuler XML response into a dict."""
     try:
-        root = ET.fromstring(xml_str)
+        root = ET.fromstring(
+            xml_str,
+            forbid_dtd=True,
+            forbid_entities=True,
+            forbid_external=True,
+        )
         result = {}
         for child in root:
             result[child.tag] = child.text
@@ -46,7 +52,11 @@ class LawRulerClient:
         data = dict(data)
         data["Key"] = API_KEY
         for attempt in range(3):
-            resp = self.session.post(self.endpoint, data=data)
+            resp = self.session.post(
+                self.endpoint,
+                data=data,
+                timeout=REQUEST_TIMEOUT,
+            )
             if resp.status_code == 429:
                 try:
                     retry_after = int(resp.headers.get("Retry-After", 10))

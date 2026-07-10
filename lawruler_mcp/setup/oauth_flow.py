@@ -7,6 +7,8 @@ import requests
 
 from lawruler_mcp import credentials
 
+REQUEST_TIMEOUT = (3.05, 30)
+
 
 def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
     endpoint = f"{base_url.rstrip('/')}/api-legalcrmapp.aspx"
@@ -18,6 +20,7 @@ def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
             "ReturnJSON": "True",
             "LeadID": "1",
         },
+        timeout=REQUEST_TIMEOUT,
     )
     return resp.status_code, resp.text[:300]
 
