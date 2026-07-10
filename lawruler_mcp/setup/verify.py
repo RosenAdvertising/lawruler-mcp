@@ -15,7 +15,7 @@ def main():
         sys.exit(1)
 
     print(f"  Portal: {BASE_URL}")
-    print(f"  Key:    {API_KEY[:8]}...")
+    print("  Key:    set (hidden)")
     print()
 
     try:
