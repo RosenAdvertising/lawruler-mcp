@@ -649,7 +649,7 @@ dev = [
 requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1,<1" },
     { name = "keyring", specifier = ">=25.7.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.27.2,<2" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.28.1,<2" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "requests", specifier = ">=2.34.2" },
 ]

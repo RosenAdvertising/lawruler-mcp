@@ -12,7 +12,7 @@ license = { text = "MIT" }
 keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "claude"]
 dependencies = [
     "defusedxml>=0.7.1,<1",
-    "mcp[cli]>=1.27.2,<2",
+    "mcp[cli]>=1.28.1,<2",
     "requests>=2.34.2",
     "python-dotenv>=1.2.2",
     "keyring>=25.7.0",
