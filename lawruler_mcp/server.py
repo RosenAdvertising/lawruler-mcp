@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""LawRuler (Legal CRM) MCP server — FastMCP tools for lead/intake management."""
+"""LawRuler (Legal CRM) MCP server tools for lead/intake management."""
 
 import json
-from mcp.server.fastmcp import FastMCP
+import logging
+
+from mcp.server import MCPServer
+
 from lawruler_mcp.client import LawRulerClient
 
-mcp = FastMCP(
+logger = logging.getLogger(__name__)
+
+mcp = MCPServer(
     "lawruler",
     instructions=(
         "LawRuler Legal CRM. Create and manage leads/intakes for law firms. "
@@ -315,8 +320,10 @@ def update_lead_fields(
         try:
             custom = json.loads(custom_fields_json)
         except json.JSONDecodeError as e:
+            logger.warning("custom_fields_rejected reason=invalid_json")
             return json.dumps({"error": f"Invalid custom_fields_json: {e}"})
         if not isinstance(custom, dict):
+            logger.warning("custom_fields_rejected reason=not_object")
             return json.dumps({"error": "custom_fields_json must be a JSON object"})
         RESERVED = {
             "leadid",
@@ -328,6 +335,7 @@ def update_lead_fields(
         }
         bad = RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
+            logger.warning("custom_fields_rejected reason=reserved_parameter")
             return json.dumps({"error": f"Reserved keys in custom_fields_json: {bad}"})
         fields.update(custom)
     return json.dumps(_c().update_lead(lead_id, override=True, **fields), indent=2)
@@ -424,8 +432,7 @@ records unexpectedly.
 **Mitigations in place (as of wt/secfix):**
 - `set_custom_field` raises `ValueError` if `field_name` matches any reserved param (case-insensitive).
 - `update_lead_fields` blocks reserved keys in the `custom_fields_json` dict before the API call.
-- `create_lead_with_custom_fields` (client layer) does NOT enforce this blocklist — agents
-  should prefer the MCP tools over calling the client directly.
+- `create_lead_with_custom_fields` (client layer) enforces the same blocklist.
 
 **Reserved keys (case-insensitive):** `leadid`, `overridelead`, `key`, `returnjson`,
 `returnxml`, `operation`.

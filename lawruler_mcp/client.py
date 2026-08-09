@@ -2,11 +2,14 @@
 """LawRuler (Legal CRM) API client. Single-endpoint form-data POST API with API key auth."""
 
 import json
+import logging
 import os
 import sys
 import time
+
 import requests
 from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
 
 from lawruler_mcp import credentials
 
@@ -16,10 +19,12 @@ credentials.load_into_environ(["LAWRULER_API_KEY", "LAWRULER_BASE_URL"])
 API_KEY = os.environ.get("LAWRULER_API_KEY", "")
 BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
 REQUEST_TIMEOUT = (3.05, 30)
+logger = logging.getLogger(__name__)
 
 
 def _endpoint():
     if not API_KEY or not BASE_URL:
+        logger.error("client_configuration_rejected reason=missing_credentials")
         raise RuntimeError(
             "LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup."
         )
@@ -39,6 +44,9 @@ def _xml_to_dict(xml_str: str) -> dict:
         for child in root:
             result[child.tag] = child.text
         return result
+    except DefusedXmlException:
+        logger.warning("xml_response_rejected reason=unsafe_markup")
+        raise
     except ET.ParseError:
         return {"raw": xml_str}
 
@@ -319,6 +327,7 @@ class LawRulerClient:
             "operation",
         }
         if field_name.casefold() in RESERVED:
+            logger.warning("custom_field_rejected reason=reserved_parameter")
             raise ValueError(f"'{field_name}' is a reserved parameter name")
         return self._post(
             {
@@ -344,11 +353,17 @@ class LawRulerClient:
         ``overridelead``, ``returnjson``, ``returnxml``) are rejected to prevent a
         caller from injecting an ``Operation=DeleteAll`` or similar payload.
         """
-        custom = json.loads(custom_fields_json) if custom_fields_json else {}
+        try:
+            custom = json.loads(custom_fields_json) if custom_fields_json else {}
+        except json.JSONDecodeError:
+            logger.warning("custom_fields_rejected reason=invalid_json")
+            raise
         if not isinstance(custom, dict):
+            logger.warning("custom_fields_rejected reason=not_object")
             raise ValueError("custom_fields_json must be a JSON object")
         bad = self._RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
+            logger.warning("custom_fields_rejected reason=reserved_parameter")
             raise ValueError(f"Reserved keys in custom_fields_json: {bad}")
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
         return self._post(data)
