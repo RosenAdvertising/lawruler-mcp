@@ -2,8 +2,8 @@
 
 > Integration note (2026-09-28): This report describes the original spec branch.
 > Round 2 changes the local branch to `mcp[cli]>=2.2,<3` and tests SDK 2.2.0.
-> The lock currently depends on local wheel paths because offline registry
-> metadata is incomplete; see the round 2 evidence report for current results.
+> The portable registry lock preserves main's non-MCP package versions and
+> passes the full 20-test suite; see the round 2 evidence report for details.
 
 ## Result
 
