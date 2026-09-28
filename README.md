@@ -43,8 +43,8 @@ via the cross-platform [`keyring`](https://github.com/jaraco/keyring) library:
 | Windows | Credential Manager                       |
 | Linux   | Secret Service (GNOME Keyring / KWallet) |
 
-Secrets are saved under the service name `lawruler-mcp`. Nothing is written to
-disk in clear text.
+Secrets are saved under the service name `lawruler-mcp` when a keyring backend
+is available. The file fallback described below stores values on disk.
 
 **File fallback.** On a host with no keyring backend (e.g. a headless Linux box
 without Secret Service), or if you set `LAWRULER_MCP_USE_KEYRING=0`, the values
