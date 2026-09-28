@@ -6,6 +6,8 @@
 
 MCP server for LawRuler Legal CRM. Provides 15 tools for lead/intake creation, retrieval, and management.
 
+Requires Python MCP SDK >=2.2,<3 (target protocol: 2026-07-28).
+
 ## Setup
 
 ```bash

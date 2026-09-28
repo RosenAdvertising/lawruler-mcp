@@ -4,13 +4,13 @@
 import json
 import logging
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from lawruler_mcp.client import LawRulerClient
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP(
+mcp = MCPServer(
     "lawruler",
     instructions=(
         "LawRuler Legal CRM. Create and manage leads/intakes for law firms. "

@@ -1,11 +1,9 @@
 # MCP 2026-07-28 migration report
 
 > Integration note (2026-09-28): This report describes the original spec branch.
-> The local `v2-2026-09-28` merge retains main's `mcp[cli]>=1.28.1,<2`
-> requirement and MCP 1.30.0 lock. MCP 2026-07-28 behavior in the tests
-> requires SDK 2.x and is blocked under that requirement; this merge is not
-> a validated protocol migration. See the fleet evidence report for current
-> test results.
+> Round 2 changes the local branch to `mcp[cli]>=2.2,<3` and tests SDK 2.2.0.
+> The lock currently depends on local wheel paths because offline registry
+> metadata is incomplete; see the round 2 evidence report for current results.
 
 ## Result
 
