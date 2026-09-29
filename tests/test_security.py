@@ -92,9 +92,7 @@ def test_xml_parser_accepts_safe_response():
     }
 
 
-def test_missing_client_configuration_logs_rejection_reason(
-    monkeypatch, caplog
-):
+def test_missing_client_configuration_logs_rejection_reason(monkeypatch, caplog):
     monkeypatch.setattr(client_module, "API_KEY", "")
     monkeypatch.setattr(client_module, "BASE_URL", "")
 
@@ -113,9 +111,7 @@ def test_missing_client_configuration_logs_rejection_reason(
         ('{"value":"private-name@example.test"', "invalid_json"),
     ],
 )
-def test_server_custom_field_rejections_log_pii_free_reason(
-    payload, reason, caplog
-):
+def test_server_custom_field_rejections_log_pii_free_reason(payload, reason, caplog):
     with caplog.at_level(logging.WARNING):
         result = server_module.update_lead_fields(1, custom_fields_json=payload)
 
@@ -124,9 +120,7 @@ def test_server_custom_field_rejections_log_pii_free_reason(
     assert "private-name@example.test" not in caplog.text
 
 
-def test_client_reserved_field_rejection_log_is_pii_free(
-    monkeypatch, caplog
-):
+def test_client_reserved_field_rejection_log_is_pii_free(monkeypatch, caplog):
     monkeypatch.setattr(client_module, "API_KEY", "test-key")
     monkeypatch.setattr(client_module, "BASE_URL", "https://example.lawruler.com")
     client = client_module.LawRulerClient()
