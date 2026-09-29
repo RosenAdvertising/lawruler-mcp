@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from defusedxml.common import DefusedXmlException
+from mcp.server.mcpserver.exceptions import ToolError
 
 import lawruler_mcp.client as client_module
 import lawruler_mcp.server as server_module
@@ -97,7 +98,7 @@ def test_missing_client_configuration_logs_rejection_reason(monkeypatch, caplog)
     monkeypatch.setattr(client_module, "BASE_URL", "")
 
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError, match="must be set"):
+        with pytest.raises(ToolError, match="LawRuler credentials are missing"):
             client_module.LawRulerClient()
 
     assert "client_configuration_rejected reason=missing_credentials" in caplog.text
@@ -113,9 +114,9 @@ def test_missing_client_configuration_logs_rejection_reason(monkeypatch, caplog)
 )
 def test_server_custom_field_rejections_log_pii_free_reason(payload, reason, caplog):
     with caplog.at_level(logging.WARNING):
-        result = server_module.update_lead_fields(1, custom_fields_json=payload)
+        with pytest.raises(ToolError, match="Invalid argument 'custom_fields_json'"):
+            server_module.update_lead_fields(1, custom_fields_json=payload)
 
-    assert "error" in result
     assert f"custom_fields_rejected reason={reason}" in caplog.text
     assert "private-name@example.test" not in caplog.text
 
@@ -126,7 +127,7 @@ def test_client_reserved_field_rejection_log_is_pii_free(monkeypatch, caplog):
     client = client_module.LawRulerClient()
 
     with caplog.at_level(logging.WARNING):
-        with pytest.raises(ValueError, match="reserved parameter"):
+        with pytest.raises(ToolError, match="Invalid argument 'field_name'"):
             client.set_custom_field(1, "Key", "private-name@example.test")
 
     assert "custom_field_rejected reason=reserved_parameter" in caplog.text
@@ -149,7 +150,7 @@ def test_client_custom_field_rejections_log_pii_free_reason(
     client = client_module.LawRulerClient()
 
     with caplog.at_level(logging.WARNING):
-        with pytest.raises((ValueError, TypeError)):
+        with pytest.raises(ToolError, match="Invalid argument 'custom_fields_json'"):
             client.create_lead_with_custom_fields(payload)
 
     assert f"custom_fields_rejected reason={reason}" in caplog.text

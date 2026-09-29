@@ -4,7 +4,6 @@
 import json
 import logging
 import os
-import sys
 import time
 
 import requests
@@ -12,6 +11,14 @@ from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
 
 from lawruler_mcp import credentials
+from lawruler_mcp.errors import (
+    ArgumentError,
+    AuthenticationError,
+    MissingCredentialsError,
+    NotFoundError,
+    RateLimitError,
+    VendorHTTPError,
+)
 
 # Resolve credentials through the pluggable store (OS keyring -> .env file).
 credentials.load_into_environ(["LAWRULER_API_KEY", "LAWRULER_BASE_URL"])
@@ -21,13 +28,47 @@ BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
 REQUEST_TIMEOUT = (3.05, 30)
 logger = logging.getLogger(__name__)
 
+_VENDOR_REASONS = {
+    "invalid_request",
+    "invalid_api_key",
+    "unauthorized",
+    "forbidden",
+    "not_found",
+    "duplicate_record",
+    "validation_error",
+    "rate_limited",
+    "service_unavailable",
+    "internal_error",
+}
+
+
+def _safe_vendor_reason(response) -> str:
+    """Return only a known vendor code; never surface free-form response text."""
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        return "request_rejected"
+    if isinstance(payload, dict):
+        for field in ("code", "error", "reason"):
+            value = payload.get(field)
+            if isinstance(value, str) and value.casefold() in _VENDOR_REASONS:
+                return value.casefold()
+    return "request_rejected"
+
+
+def _retry_after_seconds(value) -> int:
+    """Parse integer Retry-After values, defaulting and capping safely."""
+    try:
+        parsed = int(value)
+    except (ValueError, TypeError, OverflowError):
+        return 10
+    return min(max(parsed, 0), 30)
+
 
 def _endpoint():
     if not API_KEY or not BASE_URL:
         logger.error("client_configuration_rejected reason=missing_credentials")
-        raise RuntimeError(
-            "LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup."
-        )
+        raise MissingCredentialsError()
     return f"{BASE_URL}/api-legalcrmapp.aspx"
 
 
@@ -59,6 +100,7 @@ class LawRulerClient:
     def _post(self, data: dict) -> dict:
         data = dict(data)
         data["Key"] = API_KEY
+        retry_after = 10
         for attempt in range(3):
             resp = self.session.post(
                 self.endpoint,
@@ -66,37 +108,37 @@ class LawRulerClient:
                 timeout=REQUEST_TIMEOUT,
             )
             if resp.status_code == 429:
-                try:
-                    retry_after = int(resp.headers.get("Retry-After", 10))
-                except (ValueError, TypeError):
-                    retry_after = 10
-                print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
-                time.sleep(retry_after)
+                retry_after = _retry_after_seconds(resp.headers.get("Retry-After"))
+                if attempt < 2:
+                    time.sleep(retry_after)
                 continue
+            if resp.status_code in (401, 403):
+                raise AuthenticationError()
+            if resp.status_code == 404:
+                raise NotFoundError()
             if not resp.ok:
-                raise RuntimeError(
-                    f"LawRuler API error {resp.status_code}: {resp.text[:400]}"
-                )
+                raise VendorHTTPError(resp.status_code, _safe_vendor_reason(resp))
             # Try JSON first, fall back to text
             ct = resp.headers.get("Content-Type", "")
             if "json" in ct:
                 try:
                     return resp.json()
                 except ValueError:
-                    raise RuntimeError(
-                        f"LawRuler API returned invalid JSON ({resp.status_code}): "
-                        f"{resp.text[:200]}"
-                    )
+                    raise VendorHTTPError(
+                        resp.status_code, "invalid_response"
+                    ) from None
             text = resp.text.strip()
             if text.startswith("{") or text.startswith("["):
                 try:
                     return json.loads(text)
-                except json.JSONDecodeError as e:
-                    raise RuntimeError(f"LawRuler API returned invalid JSON: {e}")
+                except json.JSONDecodeError:
+                    raise VendorHTTPError(
+                        resp.status_code, "invalid_response"
+                    ) from None
             if text.startswith("<"):
                 return _xml_to_dict(text)
             return {"response": text}
-        raise RuntimeError("Max retries exceeded")
+        raise RateLimitError(retry_after)
 
     def _get(self, params: dict) -> dict:
         # LawRuler API is POST-only; Key must be in POST body, not query string.
@@ -328,7 +370,9 @@ class LawRulerClient:
         }
         if field_name.casefold() in RESERVED:
             logger.warning("custom_field_rejected reason=reserved_parameter")
-            raise ValueError(f"'{field_name}' is a reserved parameter name")
+            raise ArgumentError(
+                "field_name", "a non-reserved LawRuler custom field name"
+            )
         return self._post(
             {
                 "LeadID": str(lead_id),
@@ -357,14 +401,14 @@ class LawRulerClient:
             custom = json.loads(custom_fields_json) if custom_fields_json else {}
         except json.JSONDecodeError:
             logger.warning("custom_fields_rejected reason=invalid_json")
-            raise
+            raise ArgumentError("custom_fields_json", "a JSON object") from None
         if not isinstance(custom, dict):
             logger.warning("custom_fields_rejected reason=not_object")
-            raise ValueError("custom_fields_json must be a JSON object")
+            raise ArgumentError("custom_fields_json", "a JSON object")
         bad = self._RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
             logger.warning("custom_fields_rejected reason=reserved_parameter")
-            raise ValueError(f"Reserved keys in custom_fields_json: {bad}")
+            raise ArgumentError("custom_fields_json", "an object without reserved keys")
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
         return self._post(data)
 

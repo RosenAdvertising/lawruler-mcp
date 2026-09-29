@@ -4,13 +4,92 @@
 import json
 import logging
 
+import requests
+
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.context import Context
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+from mcp.server.context import ServerRequestContext
+from mcp.shared.exceptions import MCPError
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from pydantic import ValidationError
 
 from lawruler_mcp.client import LawRulerClient
+from lawruler_mcp.errors import ArgumentError, LawRulerToolError
 
 logger = logging.getLogger(__name__)
 
-mcp = MCPServer(
+
+class SafeMCPServer(MCPServer):
+    """Keep tool errors useful while preventing SDK exception logging leaks."""
+
+    async def _handle_call_tool(
+        self, ctx: ServerRequestContext, params: CallToolRequestParams
+    ):
+        context = Context(
+            request_context=ctx,
+            mcp_server=self,
+            input_params=params,
+            subscriptions=self._subscriptions,
+        )
+        try:
+            return await self.call_tool(params.name, params.arguments or {}, context)
+        except MCPError:
+            raise
+        except Exception as exc:
+            cause = (
+                exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
+            )
+            if (
+                isinstance(exc, ToolError)
+                and not isinstance(exc, UnexpectedToolError)
+                and isinstance(cause, ValidationError)
+            ):
+                message = _safe_validation_message(self, params.name, cause)
+                logger.info("tool_call_rejected reason=argument_validation")
+            elif isinstance(cause, LawRulerToolError):
+                message = str(cause)
+                logger.info("tool_call_failed reason=anticipated")
+            elif isinstance(cause, requests.Timeout):
+                message = "LawRuler request timed out. Retry shortly."
+                logger.info("tool_call_failed reason=timeout")
+            elif isinstance(cause, requests.ConnectionError):
+                message = "Could not connect to LawRuler. Check connectivity and retry."
+                logger.info("tool_call_failed reason=connection")
+            else:
+                logger.error("tool_call_failed reason=unexpected")
+                tool = self._tool_manager.get_tool(params.name)
+                message = f"Error executing tool {params.name if tool else 'unknown'}"
+            return CallToolResult(
+                content=[TextContent(type="text", text=message)], is_error=True
+            )
+
+
+def _safe_validation_message(
+    server: SafeMCPServer, tool_name: str, error: ValidationError
+) -> str:
+    definitions = {
+        tool.name: tool.parameters for tool in server._tool_manager.list_tools()
+    }
+    properties = definitions.get(tool_name, {}).get("properties", {})
+    allowed_names = set(properties)
+    for issue in error.errors():
+        location = issue.get("loc", ())
+        argument = next(
+            (
+                part
+                for part in location
+                if isinstance(part, str) and part in allowed_names
+            ),
+            None,
+        )
+        if argument is not None:
+            shape = properties[argument].get("type", "valid input")
+            return f"Invalid argument '{argument}': expected {shape}."
+    return "Invalid arguments: check the tool's documented input names and types."
+
+
+mcp = SafeMCPServer(
     "lawruler",
     instructions=(
         "LawRuler Legal CRM. Create and manage leads/intakes for law firms. "
@@ -319,12 +398,12 @@ def update_lead_fields(
     if custom_fields_json:
         try:
             custom = json.loads(custom_fields_json)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             logger.warning("custom_fields_rejected reason=invalid_json")
-            return json.dumps({"error": f"Invalid custom_fields_json: {e}"})
+            raise ArgumentError("custom_fields_json", "a JSON object") from None
         if not isinstance(custom, dict):
             logger.warning("custom_fields_rejected reason=not_object")
-            return json.dumps({"error": "custom_fields_json must be a JSON object"})
+            raise ArgumentError("custom_fields_json", "a JSON object")
         RESERVED = {
             "leadid",
             "overridelead",
@@ -336,7 +415,7 @@ def update_lead_fields(
         bad = RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
             logger.warning("custom_fields_rejected reason=reserved_parameter")
-            return json.dumps({"error": f"Reserved keys in custom_fields_json: {bad}"})
+            raise ArgumentError("custom_fields_json", "an object without reserved keys")
         fields.update(custom)
     return json.dumps(_c().update_lead(lead_id, override=True, **fields), indent=2)
 
