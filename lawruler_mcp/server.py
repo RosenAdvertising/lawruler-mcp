@@ -7,11 +7,12 @@ import logging
 import requests
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
-from mcp.server.context import ServerRequestContext
-from mcp.shared.exceptions import MCPError
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ResourceNotFoundError,
+    ToolError,
+    UnexpectedToolError,
+)
 from pydantic import ValidationError
 
 from lawruler_mcp.client import LawRulerClient
@@ -23,46 +24,49 @@ logger = logging.getLogger(__name__)
 class SafeMCPServer(MCPServer):
     """Keep tool errors useful while preventing SDK exception logging leaks."""
 
-    async def _handle_call_tool(
-        self, ctx: ServerRequestContext, params: CallToolRequestParams
-    ):
-        context = Context(
-            request_context=ctx,
-            mcp_server=self,
-            input_params=params,
-            subscriptions=self._subscriptions,
-        )
+    async def call_tool(self, name: str, arguments: dict, context=None):
         try:
-            return await self.call_tool(params.name, params.arguments or {}, context)
-        except MCPError:
-            raise
+            return await super().call_tool(name, arguments, context)
         except Exception as exc:
-            cause = (
-                exc.__cause__ if isinstance(exc, ToolError) and exc.__cause__ else exc
-            )
+            # Unwrap only SDK-known tool wrappers. Arbitrary application exceptions
+            # may carry a misleading cause and must remain masked.
+            cause = exc
+            if type(exc) in (UnexpectedToolError, ToolError) and exc.__cause__:
+                cause = exc.__cause__
             if (
                 isinstance(exc, ToolError)
                 and not isinstance(exc, UnexpectedToolError)
                 and isinstance(cause, ValidationError)
             ):
-                message = _safe_validation_message(self, params.name, cause)
+                message = _safe_validation_message(self, name, cause)
                 logger.info("tool_call_rejected reason=argument_validation")
             elif isinstance(cause, LawRulerToolError):
                 message = str(cause)
                 logger.info("tool_call_failed reason=anticipated")
             elif isinstance(cause, requests.Timeout):
-                message = "LawRuler request timed out. Retry shortly."
+                message = "LawRuler request timed out. The outcome is unknown; check whether the action completed before retrying."
                 logger.info("tool_call_failed reason=timeout")
             elif isinstance(cause, requests.ConnectionError):
-                message = "Could not connect to LawRuler. Check connectivity and retry."
+                message = "Could not connect to LawRuler. The outcome is unknown; check whether the action completed before retrying."
                 logger.info("tool_call_failed reason=connection")
             else:
                 logger.error("tool_call_failed reason=unexpected")
-                tool = self._tool_manager.get_tool(params.name)
-                message = f"Error executing tool {params.name if tool else 'unknown'}"
-            return CallToolResult(
-                content=[TextContent(type="text", text=message)], is_error=True
-            )
+                message = "LawRuler tool execution failed."
+            raise ToolError(message) from None
+
+    async def read_resource(self, uri, context=None):
+        try:
+            return await super().read_resource(uri, context)
+        except ResourceNotFoundError:
+            logger.info("resource_read_failed reason=not_found")
+            raise ResourceNotFoundError(
+                "Requested LawRuler resource was not found."
+            ) from None
+        except Exception:
+            logger.error("resource_read_failed reason=unexpected")
+            raise ResourceError(
+                "Unable to read the requested LawRuler resource."
+            ) from None
 
 
 def _safe_validation_message(

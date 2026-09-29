@@ -43,10 +43,11 @@ uv lock --check --offline
 The tests mock LawRuler requests or use an in-process MCP transport. They do
 not verify a live LawRuler account, hosted runtime, or other platforms.
 
-## Open product decision
+## Error behavior
 
-MCP 2.2.0 masks exception messages other than `ToolError` and `ResourceError`
-from clients. Keeping that masking limits leakage; explicitly safe `ToolError`
-messages could provide more actionable feedback. Toby should decide which
-validation and vendor errors, if any, warrant such messages. Existing exception
-handling remains unchanged.
+Expected credential, authorization, endpoint, rate-limit, vendor-response, and
+argument-validation failures are returned as MCP tool errors with fixed,
+actionable messages. Unexpected failures are masked with a generic tool error.
+All vendor operations use POST. Transport failures state that the outcome is
+unknown and ask the caller to check completion before retrying. Error messages do not include
+vendor response prose, request URLs, credentials, or rejected argument values.

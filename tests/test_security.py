@@ -32,7 +32,7 @@ def test_client_request_has_timeout(monkeypatch):
     monkeypatch.setattr(client_module, "API_KEY", "test-key")
     monkeypatch.setattr(client_module, "BASE_URL", "https://example.lawruler.com")
     client = client_module.LawRulerClient()
-    response = Mock(ok=True, status_code=200, headers={}, text="{}")
+    response = Mock(ok=True, status_code=200, headers={}, text='{"LeadID": 1}')
     post = Mock(return_value=response)
     monkeypatch.setattr(client.session, "post", post)
 

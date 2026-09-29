@@ -3,6 +3,8 @@
 
 import json
 import sys
+
+from lawruler_mcp.errors import LawRulerToolError
 from lawruler_mcp.client import LawRulerClient, BASE_URL, API_KEY
 
 
@@ -14,7 +16,7 @@ def main():
         )
         sys.exit(1)
 
-    print(f"  Portal: {BASE_URL}")
+    print("  Portal: configured (hidden)")
     print("  Key:    set (hidden)")
     print()
 
@@ -24,8 +26,13 @@ def main():
         result = client.get_lead(1)
         print("✓ Connection successful.")
         print(json.dumps(result, indent=2))
-    except Exception as e:
-        print(f"✗ Verification failed: {e}")
+    except LawRulerToolError as exc:
+        print(f"✗ Verification failed: {exc}")
+        sys.exit(1)
+    except Exception:
+        print(
+            "✗ Verification failed. Check the portal URL and credentials, then run lawruler-mcp-setup."
+        )
         sys.exit(1)
 
 

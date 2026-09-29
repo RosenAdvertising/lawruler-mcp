@@ -11,7 +11,7 @@ class MissingCredentialsError(LawRulerToolError):
     def __init__(self):
         super().__init__(
             "LawRuler credentials are missing. Run `lawruler-mcp-setup` or set "
-            "LAWRULER_API_KEY and LAWRULER_BASE_URL."
+            "LAWRULER_API_KEY and LAWRULER_BASE_URL. Restart the MCP server after changing credentials."
         )
 
 
@@ -19,6 +19,25 @@ class AuthenticationError(LawRulerToolError):
     def __init__(self):
         super().__init__(
             "LawRuler authentication was rejected. Reauthorize with `lawruler-mcp-setup`."
+        )
+
+
+class PermissionDeniedError(LawRulerToolError):
+    def __init__(self):
+        super().__init__(
+            "LawRuler access denied: the connected account lacks permission for this action (or the authorization expired; re-run lawruler-mcp-setup if so)."
+        )
+
+
+class TransportError(LawRulerToolError):
+    def __init__(self, *, timed_out: bool):
+        reason = (
+            "LawRuler request timed out."
+            if timed_out
+            else "Could not connect to LawRuler."
+        )
+        super().__init__(
+            f"{reason} The outcome is unknown; check whether the action completed before retrying."
         )
 
 
@@ -37,7 +56,7 @@ class RateLimitError(LawRulerToolError):
 class NotFoundError(LawRulerToolError):
     def __init__(self):
         super().__init__(
-            "LawRuler record was not found (HTTP 404). Check the LeadID and try again."
+            "LawRuler endpoint was not found (HTTP 404). Check the configured portal URL and API endpoint."
         )
 
 

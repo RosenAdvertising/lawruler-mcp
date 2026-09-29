@@ -3,8 +3,10 @@
 
 import json
 import logging
+import math
 import os
 import time
+from email.utils import parsedate_to_datetime
 
 import requests
 from defusedxml import ElementTree as ET
@@ -16,7 +18,9 @@ from lawruler_mcp.errors import (
     AuthenticationError,
     MissingCredentialsError,
     NotFoundError,
+    PermissionDeniedError,
     RateLimitError,
+    TransportError,
     VendorHTTPError,
 )
 
@@ -56,13 +60,56 @@ def _safe_vendor_reason(response) -> str:
     return "request_rejected"
 
 
+def _is_failure_envelope(payload) -> bool:
+    """Recognize explicit JSON failure shapes without exposing their prose."""
+    if isinstance(payload, list):
+        return any(_is_failure_envelope(item) for item in payload)
+    if not isinstance(payload, dict):
+        return True
+    if not payload:
+        return True
+    normalized = {str(key).casefold(): value for key, value in payload.items()}
+    if normalized.get("success") is False or normalized.get("ok") is False:
+        return True
+    if any(
+        isinstance(normalized.get(key), str) and normalized[key].casefold() == "false"
+        for key in ("success", "ok")
+    ):
+        return True
+    status = normalized.get("status")
+    if isinstance(status, str) and status.casefold() in {"error", "failed", "failure"}:
+        return True
+    if isinstance(status, int) and status >= 400:
+        return True
+    for field in ("error", "errors"):
+        value = normalized.get(field)
+        if (
+            value is not None
+            and value is not False
+            and value != ""
+            and value != []
+            and value != {}
+        ):
+            return True
+    return any(
+        _is_failure_envelope(normalized[key])
+        for key in ("response", "result")
+        if isinstance(normalized.get(key), (dict, list))
+    )
+
+
 def _retry_after_seconds(value) -> int:
-    """Parse integer Retry-After values, defaulting and capping safely."""
+    """Parse Retry-After without shortening a vendor-requested delay."""
     try:
-        parsed = int(value)
-    except (ValueError, TypeError, OverflowError):
+        seconds = float(value)
+    except (TypeError, ValueError):
+        try:
+            seconds = parsedate_to_datetime(value).timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return 10
+    if not math.isfinite(seconds):
         return 10
-    return min(max(parsed, 0), 30)
+    return max(0, math.ceil(seconds))
 
 
 def _endpoint():
@@ -81,15 +128,26 @@ def _xml_to_dict(xml_str: str) -> dict:
             forbid_entities=True,
             forbid_external=True,
         )
-        result = {}
-        for child in root:
-            result[child.tag] = child.text
-        return result
+        if root.tag.rsplit("}", 1)[-1].casefold() in {"error", "errors"}:
+            return {"error": "request_rejected"}
+
+        def children(element):
+            return {
+                child.tag.rsplit("}", 1)[-1]: children(child)
+                if len(child)
+                else child.text
+                for child in element
+            }
+
+        payload = children(root)
+        if not payload:
+            raise VendorHTTPError(200, "invalid_response")
+        return payload
     except DefusedXmlException:
         logger.warning("xml_response_rejected reason=unsafe_markup")
         raise
     except ET.ParseError:
-        return {"raw": xml_str}
+        raise VendorHTTPError(200, "invalid_response") from None
 
 
 class LawRulerClient:
@@ -101,43 +159,64 @@ class LawRulerClient:
         data = dict(data)
         data["Key"] = API_KEY
         retry_after = 10
+        waited = 0
         for attempt in range(3):
-            resp = self.session.post(
-                self.endpoint,
-                data=data,
-                timeout=REQUEST_TIMEOUT,
-            )
+            try:
+                resp = self.session.post(
+                    self.endpoint,
+                    data=data,
+                    timeout=REQUEST_TIMEOUT,
+                )
+            except requests.Timeout:
+                raise TransportError(timed_out=True) from None
+            except requests.ConnectionError:
+                raise TransportError(timed_out=False) from None
             if resp.status_code == 429:
                 retry_after = _retry_after_seconds(resp.headers.get("Retry-After"))
                 if attempt < 2:
+                    remaining = 60 - waited
+                    if retry_after > remaining:
+                        raise RateLimitError(retry_after)
                     time.sleep(retry_after)
+                    waited += retry_after
                 continue
-            if resp.status_code in (401, 403):
+            if resp.status_code == 401:
                 raise AuthenticationError()
+            if resp.status_code == 403:
+                raise PermissionDeniedError()
             if resp.status_code == 404:
                 raise NotFoundError()
-            if not resp.ok:
+            if not 200 <= resp.status_code < 300:
                 raise VendorHTTPError(resp.status_code, _safe_vendor_reason(resp))
-            # Try JSON first, fall back to text
+            # A 200 response can still carry a vendor failure envelope.
             ct = resp.headers.get("Content-Type", "")
             if "json" in ct:
                 try:
-                    return resp.json()
+                    payload = resp.json()
                 except ValueError:
                     raise VendorHTTPError(
                         resp.status_code, "invalid_response"
                     ) from None
+                if _is_failure_envelope(payload):
+                    raise VendorHTTPError(200, _safe_vendor_reason(resp))
+                return payload
             text = resp.text.strip()
             if text.startswith("{") or text.startswith("["):
                 try:
-                    return json.loads(text)
+                    payload = json.loads(text)
+                    if _is_failure_envelope(payload):
+                        raise VendorHTTPError(200, _safe_vendor_reason(resp))
+                    return payload
                 except json.JSONDecodeError:
                     raise VendorHTTPError(
                         resp.status_code, "invalid_response"
                     ) from None
             if text.startswith("<"):
-                return _xml_to_dict(text)
-            return {"response": text}
+                payload = _xml_to_dict(text)
+                if _is_failure_envelope(payload):
+                    raise VendorHTTPError(200, _safe_vendor_reason(resp))
+                return payload
+            raise VendorHTTPError(200, "request_rejected")
         raise RateLimitError(retry_after)
 
     def _get(self, params: dict) -> dict:
