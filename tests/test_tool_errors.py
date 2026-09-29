@@ -10,7 +10,7 @@ import pytest
 import requests
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.exceptions import ResourceError
-from mcp.types import CallToolRequestParams
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 import lawruler_mcp.client as client_module
 import lawruler_mcp.server as server_module
@@ -30,9 +30,11 @@ class Response:
         return self._payload
 
 
-def call_tool(name, arguments):
+def call_tool(name, arguments) -> CallToolResult:
     params = CallToolRequestParams(name=name, arguments=arguments)
-    return asyncio.run(server_module.mcp._handle_call_tool(cast(Any, None), params))
+    result = asyncio.run(server_module.mcp._handle_call_tool(cast(Any, None), params))
+    assert isinstance(result, CallToolResult)
+    return result
 
 
 def setup_http(monkeypatch, responses):
@@ -44,8 +46,10 @@ def setup_http(monkeypatch, responses):
     return client
 
 
-def result_text(result):
+def result_text(result: CallToolResult) -> str:
     assert result.is_error is True
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
     return result.content[0].text
 
 
@@ -191,7 +195,7 @@ def test_arbitrary_exception_does_not_unwrap_known_nested_cause(monkeypatch):
     monkeypatch.setattr(server_module, "_c", BrokenClient)
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
-    assert result.content[0].text == "LawRuler tool execution failed."
+    assert result_text(result) == "LawRuler tool execution failed."
 
 
 @pytest.mark.parametrize(
@@ -256,8 +260,7 @@ def test_http_200_json_failure_envelope_is_tool_error(monkeypatch, body):
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
     assert (
-        result.content[0].text
-        == "LawRuler request failed (HTTP 200): request_rejected."
+        result_text(result) == "LawRuler request failed (HTTP 200): request_rejected."
     )
 
 
@@ -266,8 +269,7 @@ def test_http_200_plaintext_failure_is_tool_error(monkeypatch):
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
     assert (
-        result.content[0].text
-        == "LawRuler request failed (HTTP 200): request_rejected."
+        result_text(result) == "LawRuler request failed (HTTP 200): request_rejected."
     )
 
 
@@ -279,8 +281,7 @@ def test_http_200_xml_error_envelope_is_tool_error(monkeypatch):
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
     assert (
-        result.content[0].text
-        == "LawRuler request failed (HTTP 200): request_rejected."
+        result_text(result) == "LawRuler request failed (HTTP 200): request_rejected."
     )
 
 
@@ -298,7 +299,7 @@ def test_http_200_empty_or_malformed_success_envelopes_are_errors(
     setup_http(monkeypatch, [response])
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
-    assert result.content[0].text in {
+    assert result_text(result) in {
         "LawRuler request failed (HTTP 200): request_rejected.",
         "LawRuler request failed (HTTP 200): invalid_response.",
     }
@@ -309,7 +310,7 @@ def test_empty_failure_bodies_remain_errors(monkeypatch, response):
     setup_http(monkeypatch, [response])
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
-    assert result.content[0].text.startswith(("LawRuler ", "Lawruler "))
+    assert result_text(result).startswith(("LawRuler ", "Lawruler "))
 
 
 def test_retry_sleep_budget_spans_multiple_429_responses(monkeypatch):
@@ -324,9 +325,7 @@ def test_retry_sleep_budget_spans_multiple_429_responses(monkeypatch):
     monkeypatch.setattr(client_module.time, "sleep", waits.append)
     result = call_tool("get_lead", {"lead_id": 1})
     assert result.is_error is True
-    assert (
-        result.content[0].text == "LawRuler rate limit reached. Retry after 30 seconds."
-    )
+    assert result_text(result) == "LawRuler rate limit reached. Retry after 30 seconds."
     assert waits == [40]
     assert cast(Mock, client.session.post).call_count == 2
 
@@ -359,11 +358,9 @@ def test_write_transport_failure_warns_unknown_outcome(monkeypatch, error):
     setup_http(monkeypatch, [error])
     result = call_tool("update_lead_status", {"lead_id": 1, "status": "New"})
     assert result.is_error is True
-    assert "outcome is unknown" in result.content[0].text
-    assert (
-        "check whether the action completed before retrying" in result.content[0].text
-    )
-    assert "sentinel" not in result.content[0].text
+    assert "outcome is unknown" in result_text(result)
+    assert "check whether the action completed before retrying" in result_text(result)
+    assert "sentinel" not in result_text(result)
 
 
 def test_verify_entrypoint_hides_unknown_exception(monkeypatch, capsys):
