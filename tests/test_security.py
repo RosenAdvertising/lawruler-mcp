@@ -47,6 +47,7 @@ def test_client_request_has_timeout(monkeypatch):
             "Key": "test-key",
         },
         timeout=client_module.REQUEST_TIMEOUT,
+        allow_redirects=False,
     )
 
 
@@ -68,6 +69,7 @@ def test_setup_request_has_timeout(monkeypatch):
             "LeadID": "1",
         },
         timeout=oauth_flow.REQUEST_TIMEOUT,
+        allow_redirects=False,
     )
 
 

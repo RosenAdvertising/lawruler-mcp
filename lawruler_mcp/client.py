@@ -13,6 +13,11 @@ from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
 
 from lawruler_mcp import credentials
+from lawruler_mcp.validation import (
+    meaningful_value,
+    validate_field_name,
+    validate_portal_url,
+)
 from lawruler_mcp.errors import (
     ArgumentError,
     AuthenticationError,
@@ -28,7 +33,7 @@ from lawruler_mcp.errors import (
 credentials.load_into_environ(["LAWRULER_API_KEY", "LAWRULER_BASE_URL"])
 
 API_KEY = os.environ.get("LAWRULER_API_KEY", "")
-BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
+BASE_URL = os.environ.get("LAWRULER_BASE_URL", "")
 REQUEST_TIMEOUT = (3.05, 30)
 logger = logging.getLogger(__name__)
 
@@ -116,7 +121,18 @@ def _endpoint():
     if not API_KEY or not BASE_URL:
         logger.error("client_configuration_rejected reason=missing_credentials")
         raise MissingCredentialsError()
-    return f"{BASE_URL}/api-legalcrmapp.aspx"
+    return f"{validate_portal_url(BASE_URL)}/api-legalcrmapp.aspx"
+
+
+def _compact_fields(fields: dict) -> dict:
+    """Omit absent/blank values while preserving explicit zero and false."""
+    return {key: value for key, value in fields.items() if meaningful_value(value)}
+
+
+def _validated_fields(fields: dict, argument: str = "field_name") -> dict:
+    # Check all names first, then all values, before normalized aliases can merge.
+    names = {key: validate_field_name(key, argument) for key in fields}
+    return {names[key]: value for key, value in _compact_fields(fields).items()}
 
 
 def _xml_to_dict(xml_str: str) -> dict:
@@ -166,6 +182,7 @@ class LawRulerClient:
                     self.endpoint,
                     data=data,
                     timeout=REQUEST_TIMEOUT,
+                    allow_redirects=False,
                 )
             except requests.Timeout:
                 raise TransportError(timed_out=True) from None
@@ -335,9 +352,26 @@ class LawRulerClient:
             data["Language"] = language
         if disable_dup_check:
             data["dupcheck"] = "0"
+        data = _compact_fields(data)
+        if not (
+            data.get("FullName") or (data.get("FirstName") and data.get("LastName"))
+        ):
+            raise ArgumentError("lead", "full_name or both first_name and last_name")
+        if not data.get("CellPhone"):
+            raise ArgumentError(
+                "cell_phone", "a non-empty cell phone required by LawRuler"
+            )
+        if not data.get("Email1"):
+            raise ArgumentError(
+                "email", "a non-empty primary email required by LawRuler"
+            )
         return self._post(data)
 
     def update_lead(self, lead_id: int, override: bool = True, **fields) -> dict:
+        # Validate every name before dropping empty values or counting changes.
+        fields = _validated_fields(fields)
+        if not fields:
+            raise ArgumentError("fields", "at least one non-empty changed field")
         data = {
             "LeadID": str(lead_id),
             "ReturnJSON": "True",
@@ -359,112 +393,32 @@ class LawRulerClient:
         )
 
     def update_lead_status(self, lead_id: int, status: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Status": status,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Status=status)
 
     def update_lead_assignee(self, lead_id: int, assignee: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "LeadAssignee": assignee,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, LeadAssignee=assignee)
 
     def update_lead_owner(self, lead_id: int, owner: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "LeadOwner": owner,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, LeadOwner=owner)
 
     def add_tags_to_lead(self, lead_id: int, tags: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Tags": tags,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Tags=tags)
 
     def update_lead_case_type(self, lead_id: int, case_type: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "CaseType": case_type,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, CaseType=case_type)
 
     def update_lead_summary(self, lead_id: int, summary: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Summary": summary,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Summary=summary)
 
     def add_conversation_note(self, lead_id: int, conversation: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Conversation": conversation,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Conversation=conversation)
 
     def update_lead_language(self, lead_id: int, language: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Language": language,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Language=language)
 
     def set_custom_field(self, lead_id: int, field_name: str, value: str) -> dict:
-        RESERVED = {
-            "leadid",
-            "overridelead",
-            "key",
-            "returnjson",
-            "returnxml",
-            "operation",
-        }
-        if field_name.casefold() in RESERVED:
-            logger.warning("custom_field_rejected reason=reserved_parameter")
-            raise ArgumentError(
-                "field_name", "a non-reserved LawRuler custom field name"
-            )
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "overridelead": "true",
-                "ReturnJSON": "True",
-                field_name: value,
-            }
-        )
-
-    # Parameters that must never be overridden by caller-supplied JSON.
-    _RESERVED = frozenset(
-        {"key", "operation", "leadid", "overridelead", "returnjson", "returnxml"}
-    )
+        field_name = validate_field_name(field_name)
+        return self.update_lead(lead_id, **{field_name: value})
 
     def create_lead_with_custom_fields(
         self, custom_fields_json: str, **standard_fields
@@ -484,10 +438,8 @@ class LawRulerClient:
         if not isinstance(custom, dict):
             logger.warning("custom_fields_rejected reason=not_object")
             raise ArgumentError("custom_fields_json", "a JSON object")
-        bad = self._RESERVED & {str(k).casefold() for k in custom.keys()}
-        if bad:
-            logger.warning("custom_fields_rejected reason=reserved_parameter")
-            raise ArgumentError("custom_fields_json", "an object without reserved keys")
+        custom = _validated_fields(custom, "custom_fields_json")
+        standard_fields = _validated_fields(standard_fields)
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
         return self._post(data)
 
@@ -502,7 +454,7 @@ class LawRulerClient:
         state: str = "",
         zip_code: str = "",
     ) -> dict:
-        data = {"LeadID": str(lead_id), "overridelead": "true", "ReturnJSON": "True"}
+        data = {}
         if cell_phone:
             data["CellPhone"] = cell_phone
         if home_phone:
@@ -517,4 +469,4 @@ class LawRulerClient:
             data["State"] = state
         if zip_code:
             data["Zip"] = zip_code
-        return self._post(data)
+        return self.update_lead(lead_id, **data)

@@ -39,7 +39,7 @@ def call_tool(name, arguments) -> CallToolResult:
 
 def setup_http(monkeypatch, responses):
     monkeypatch.setattr(client_module, "API_KEY", "fake-key")
-    monkeypatch.setattr(client_module, "BASE_URL", "https://lawruler.invalid")
+    monkeypatch.setattr(client_module, "BASE_URL", "https://test.lawruler.com")
     client = client_module.LawRulerClient()
     client.session.post = Mock(side_effect=responses)
     monkeypatch.setattr(server_module, "_c", lambda: client)
@@ -347,7 +347,7 @@ def test_setup_request_has_timeout(monkeypatch):
 
     post = Mock(return_value=Response(200, text="<Response />"))
     monkeypatch.setattr(setup.requests, "post", post)
-    setup.test_connection("https://firm.invalid", "fake-key")
+    setup.test_connection("https://test.lawruler.com", "fake-key")
     assert post.call_args.kwargs["timeout"] == setup.REQUEST_TIMEOUT
 
 
@@ -367,9 +367,7 @@ def test_verify_entrypoint_hides_unknown_exception(monkeypatch, capsys):
     import lawruler_mcp.setup.verify as verify
 
     monkeypatch.setattr(verify, "API_KEY", "fake-key")
-    monkeypatch.setattr(
-        verify, "BASE_URL", "https://private.invalid/path?token=sentinel"
-    )
+    monkeypatch.setattr(verify, "BASE_URL", "https://test.lawruler.com")
     monkeypatch.setattr(
         verify,
         "LawRulerClient",
@@ -400,7 +398,7 @@ def test_verify_entrypoint_without_credentials_is_actionable(monkeypatch, capsys
     "inputs, message",
     [
         ([], "Portal URL is required."),
-        (["https://firm.invalid"], "API Key is required."),
+        (["https://test.lawruler.com"], "API Key is required."),
     ],
 )
 def test_setup_entrypoint_handles_eof_and_empty_inputs(
@@ -427,7 +425,7 @@ def test_setup_entrypoint_handles_eof_and_empty_inputs(
 def test_setup_entrypoint_bad_key_is_safe(monkeypatch, capsys):
     import lawruler_mcp.setup.oauth_flow as setup
 
-    answers = iter(["https://firm.invalid", "fake-bad-key"])
+    answers = iter(["https://test.lawruler.com", "fake-bad-key"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     monkeypatch.setattr(setup, "getpass", lambda _prompt: next(answers))
     monkeypatch.setattr(
@@ -444,7 +442,7 @@ def test_setup_entrypoint_bad_key_is_safe(monkeypatch, capsys):
 def test_setup_entrypoint_403_uses_required_permission_guidance(monkeypatch, capsys):
     import lawruler_mcp.setup.oauth_flow as setup
 
-    answers = iter(["https://firm.invalid", "fake-key"])
+    answers = iter(["https://test.lawruler.com", "fake-key"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     monkeypatch.setattr(setup, "getpass", lambda _prompt: next(answers))
     monkeypatch.setattr(
@@ -461,9 +459,12 @@ def test_setup_entrypoint_403_uses_required_permission_guidance(monkeypatch, cap
     assert "PRIVATE" not in output and "fake-key" not in output
 
 
-def test_installed_setup_command_rejects_fake_bad_key_safely():
+def test_installed_setup_command_rejects_loopback_before_request():
+    received = []
+
     class UnauthorizedHandler(BaseHTTPRequestHandler):
         def do_POST(self):
+            received.append(self.path)
             self.send_response(401)
             self.end_headers()
             self.wfile.write(b"PRIVATE-VENDOR-RESPONSE")
@@ -488,7 +489,8 @@ def test_installed_setup_command_rejects_fake_bad_key_safely():
         thread.join(timeout=2)
         httpd.server_close()
     assert command.returncode == 1
-    assert "authentication failed" in command.stdout
+    assert "LAWRULER_BASE_URL" in command.stdout
+    assert received == []
     assert "fake-bad-key" not in command.stdout
     assert "PRIVATE-VENDOR-RESPONSE" not in command.stdout
     assert "Traceback" not in command.stdout + command.stderr
@@ -508,9 +510,12 @@ def test_installed_verify_command_without_credentials_is_actionable():
     assert "Traceback" not in command.stdout + command.stderr
 
 
-def test_installed_verify_command_fake_bad_key_is_safe():
+def test_installed_verify_command_rejects_loopback_before_request():
+    received = []
+
     class UnauthorizedHandler(BaseHTTPRequestHandler):
         def do_POST(self):
+            received.append(self.path)
             self.send_response(401)
             self.end_headers()
             self.wfile.write(b"PRIVATE-VENDOR-RESPONSE")
@@ -540,7 +545,8 @@ def test_installed_verify_command_fake_bad_key_is_safe():
         thread.join(timeout=2)
         httpd.server_close()
     assert command.returncode == 1
-    assert "authentication was rejected" in command.stdout
+    assert "LAWRULER_BASE_URL" in command.stdout
+    assert received == []
     assert "fake-bad-key" not in command.stdout + command.stderr
     assert "PRIVATE-VENDOR-RESPONSE" not in command.stdout + command.stderr
     assert "Traceback" not in command.stdout + command.stderr
@@ -549,7 +555,7 @@ def test_installed_verify_command_fake_bad_key_is_safe():
 def test_setup_entrypoint_http_200_error_envelope_fails_safely(monkeypatch, capsys):
     import lawruler_mcp.setup.oauth_flow as setup
 
-    answers = iter(["https://firm.invalid", "fake-key"])
+    answers = iter(["https://test.lawruler.com", "fake-key"])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     monkeypatch.setattr(setup, "getpass", lambda _prompt: next(answers))
     monkeypatch.setattr(
@@ -625,7 +631,7 @@ def test_sentinel_identifier_stays_in_post_body(monkeypatch):
     )
     client.get_lead(cast(Any, "../x"))
     sent = cast(Mock, client.session.post).call_args
-    assert sent.args == ("https://lawruler.invalid/api-legalcrmapp.aspx",)
+    assert sent.args == ("https://test.lawruler.com/api-legalcrmapp.aspx",)
     assert sent.kwargs["data"]["LeadID"] == "../x"
 
 
@@ -644,7 +650,7 @@ def test_verify_preserves_safe_permission_guidance(monkeypatch, capsys):
     from lawruler_mcp.setup import verify
 
     monkeypatch.setattr(verify, "API_KEY", "fake")
-    monkeypatch.setattr(verify, "BASE_URL", "https://offline.invalid")
+    monkeypatch.setattr(verify, "BASE_URL", "https://test.lawruler.com")
     monkeypatch.setattr(
         verify, "LawRulerClient", lambda: (_ for _ in ()).throw(PermissionDeniedError())
     )
@@ -661,7 +667,7 @@ def test_verify_preserves_safe_permission_guidance(monkeypatch, capsys):
 def test_setup_post_transport_failure_has_unknown_outcome(monkeypatch, capsys, failure):
     from lawruler_mcp.setup import oauth_flow as setup
 
-    monkeypatch.setattr("builtins.input", lambda _: "https://portal.invalid")
+    monkeypatch.setattr("builtins.input", lambda _: "https://test.lawruler.com")
     monkeypatch.setattr(setup, "getpass", lambda _: "fake-key")
 
     def fail(*args, **kwargs):

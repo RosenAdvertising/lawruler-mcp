@@ -3,6 +3,7 @@
 
 import json
 import logging
+import sys
 
 import requests
 
@@ -15,8 +16,9 @@ from mcp.server.mcpserver.exceptions import (
 )
 from pydantic import ValidationError
 
-from lawruler_mcp.client import LawRulerClient
+from lawruler_mcp.client import BASE_URL, LawRulerClient
 from lawruler_mcp.errors import ArgumentError, LawRulerToolError
+from lawruler_mcp.validation import validate_portal_url
 
 logger = logging.getLogger(__name__)
 
@@ -589,6 +591,12 @@ For each LeadID in your current working set:
 
 
 def main():
+    if BASE_URL:
+        try:
+            validate_portal_url(BASE_URL)
+        except LawRulerToolError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
     mcp.run()
 
 

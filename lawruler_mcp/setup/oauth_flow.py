@@ -8,12 +8,14 @@ import requests
 
 from lawruler_mcp import credentials
 from lawruler_mcp.client import _is_failure_envelope, _xml_to_dict
+from lawruler_mcp.errors import LawRulerToolError
+from lawruler_mcp.validation import validate_portal_url
 
 REQUEST_TIMEOUT = (3.05, 30)
 
 
 def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
-    endpoint = f"{base_url.rstrip('/')}/api-legalcrmapp.aspx"
+    endpoint = f"{validate_portal_url(base_url)}/api-legalcrmapp.aspx"
     resp = requests.post(
         endpoint,
         data={
@@ -23,6 +25,7 @@ def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
             "LeadID": "1",
         },
         timeout=REQUEST_TIMEOUT,
+        allow_redirects=False,
     )
     return resp.status_code, resp.text
 
@@ -45,13 +48,14 @@ def _run_setup():
     print()
 
     try:
-        base_url = input("Portal URL (e.g. https://yourfirm.lawruler.com): ").strip()
+        base_url = input("Portal URL (e.g. https://yourfirm.lawruler.com): ")
     except (EOFError, KeyboardInterrupt):
         print("Portal URL is required.")
         sys.exit(1)
     if not base_url:
         print("Portal URL is required.")
         sys.exit(1)
+    base_url = validate_portal_url(base_url)
 
     try:
         api_key = getpass("API Key: ").strip()
@@ -128,6 +132,9 @@ def _run_setup():
 def main():
     try:
         _run_setup()
+    except LawRulerToolError as exc:
+        print(f"✗ LawRuler setup failed: {exc}")
+        sys.exit(1)
     except Exception:
         print(
             "✗ LawRuler setup failed. Check the portal URL and credential storage, then run lawruler-mcp-setup again."

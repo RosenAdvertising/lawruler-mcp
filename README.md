@@ -71,6 +71,35 @@ an encrypted file backend, or a cloud backend, then select it with the standard
 
 ## Tools (15)
 
+### Portal and write validation
+
+`LAWRULER_BASE_URL` must be an HTTPS origin on `lawruler.com` or a subdomain,
+for example `https://yourfirm.lawruler.com`. Startup, setup and verify share
+the same validator. IP addresses, unrelated domains, userinfo, query strings,
+fragments, paths other than `/`, and ports other than 443 are rejected before
+requests or setup credential storage. Redirects are disabled on every request.
+LawRuler's [public API guide](https://kb.lawruler.com/knowledge-base/integrations/other/the-legal-crm-api-guide.htm)
+uses `https://sample.lawruler.com/api-legalcrmapp.aspx`.
+
+All three create tools require a nonblank `full_name`, or both `first_name`
+and `last_name`. They also require `cell_phone` and primary `email`, which
+the API guide's Available Fields table marks required. The existing tool
+schemas are unchanged; missing data is rejected locally. All update paths require
+at least one meaningful changed value; explicit custom values `0` and `false`
+remain valid. For presence checks, text is normalized with Unicode NFKC and
+whitespace and Unicode categories Cc/Cf/Zs/Zl/Zp are removed. NUL anywhere and
+unpaired surrogate characters are rejected outright. Meaningful original values
+(including non-ASCII names such as `José García`) are preserved in the request.
+
+Custom API field names must match `[A-Za-z_][A-Za-z0-9_]*` after NFKC
+normalization. Empty names, whitespace anywhere (including wrapped names),
+control/format characters, surrogates and other punctuation are rejected.
+Normalized, case-folded `key`, `operation`, `leadid`, `overridelead`, `returnjson`
+and `returnxml` are reserved. Names are validated before empty values are omitted;
+any invalid name rejects the call. Accepted names are sent in normalized form.
+This applies to single custom-field writes and multi-field updates.
+Verify prints a fixed success message without displaying the returned lead record.
+
 ### Create Leads
 
 - `create_lead` — core fields (name, phone, email, case type)
