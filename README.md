@@ -55,6 +55,10 @@ LAWRULER_BASE_URL=https://yourfirm.lawruler.com
 LAWRULER_API_KEY=your_api_key
 ```
 
+On Windows, the file is stored in the user's profile and protected by Windows'
+default per-user access rules. On POSIX, files are created with `0600` permissions
+and writes fail closed if private permissions cannot be established.
+
 **Read order.** Values resolve in the order OS keyring → process environment →
 `.env` file. So a rotated key in the keyring always wins, and a value exported in
 your shell overrides the file fallback without touching the keyring.
