@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Verify LawRuler MCP credentials."""
 
-import json
 import sys
+
+from lawruler_mcp.errors import LawRulerToolError
 from lawruler_mcp.client import LawRulerClient, BASE_URL, API_KEY
+from lawruler_mcp.validation import validate_portal_url
 
 
 def main():
@@ -14,18 +16,23 @@ def main():
         )
         sys.exit(1)
 
-    print(f"  Portal: {BASE_URL}")
+    print("  Portal: configured (hidden)")
     print("  Key:    set (hidden)")
     print()
 
     try:
+        validate_portal_url(BASE_URL)
         client = LawRulerClient()
         # Query lead 1 — may or may not exist, but confirms the endpoint is reachable
-        result = client.get_lead(1)
+        client.get_lead(1)
         print("✓ Connection successful.")
-        print(json.dumps(result, indent=2))
-    except Exception as e:
-        print(f"✗ Verification failed: {e}")
+    except LawRulerToolError as exc:
+        print(f"✗ Verification failed: {exc}")
+        sys.exit(1)
+    except Exception:
+        print(
+            "✗ Verification failed. Check the portal URL and credentials, then run lawruler-mcp-setup."
+        )
         sys.exit(1)
 
 

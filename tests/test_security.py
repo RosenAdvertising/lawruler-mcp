@@ -1,9 +1,12 @@
+import logging
 from unittest.mock import Mock
 
 import pytest
 from defusedxml.common import DefusedXmlException
+from mcp.server.mcpserver.exceptions import ToolError
 
 import lawruler_mcp.client as client_module
+import lawruler_mcp.server as server_module
 import lawruler_mcp.setup.oauth_flow as oauth_flow
 import lawruler_mcp.setup.verify as verify_module
 
@@ -29,7 +32,7 @@ def test_client_request_has_timeout(monkeypatch):
     monkeypatch.setattr(client_module, "API_KEY", "test-key")
     monkeypatch.setattr(client_module, "BASE_URL", "https://example.lawruler.com")
     client = client_module.LawRulerClient()
-    response = Mock(ok=True, status_code=200, headers={}, text="{}")
+    response = Mock(ok=True, status_code=200, headers={}, text='{"LeadID": 1}')
     post = Mock(return_value=response)
     monkeypatch.setattr(client.session, "post", post)
 
@@ -44,6 +47,7 @@ def test_client_request_has_timeout(monkeypatch):
             "Key": "test-key",
         },
         timeout=client_module.REQUEST_TIMEOUT,
+        allow_redirects=False,
     )
 
 
@@ -65,10 +69,11 @@ def test_setup_request_has_timeout(monkeypatch):
             "LeadID": "1",
         },
         timeout=oauth_flow.REQUEST_TIMEOUT,
+        allow_redirects=False,
     )
 
 
-def test_xml_parser_rejects_entities():
+def test_xml_parser_rejects_entities_with_pii_free_log(caplog):
     malicious_xml = """\
 <!DOCTYPE root [
   <!ENTITY secret SYSTEM "file:///etc/passwd">
@@ -76,11 +81,79 @@ def test_xml_parser_rejects_entities():
 <root><item>&secret;</item></root>
 """
 
-    with pytest.raises(DefusedXmlException):
-        client_module._xml_to_dict(malicious_xml)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(DefusedXmlException):
+            client_module._xml_to_dict(malicious_xml)
+
+    assert "xml_response_rejected reason=unsafe_markup" in caplog.text
+    assert "file:///etc/passwd" not in caplog.text
 
 
 def test_xml_parser_accepts_safe_response():
     assert client_module._xml_to_dict("<root><item>safe</item></root>") == {
         "item": "safe"
     }
+
+
+def test_missing_client_configuration_logs_rejection_reason(monkeypatch, caplog):
+    monkeypatch.setattr(client_module, "API_KEY", "")
+    monkeypatch.setattr(client_module, "BASE_URL", "")
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(ToolError, match="LawRuler credentials are missing"):
+            client_module.LawRulerClient()
+
+    assert "client_configuration_rejected reason=missing_credentials" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ('{"Key":"private-name@example.test"}', "reserved_parameter"),
+        ('["private-name@example.test"]', "not_object"),
+        ('{"value":"private-name@example.test"', "invalid_json"),
+    ],
+)
+def test_server_custom_field_rejections_log_pii_free_reason(payload, reason, caplog):
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ToolError, match="Invalid argument 'custom_fields_json'"):
+            server_module.update_lead_fields(1, custom_fields_json=payload)
+
+    assert f"custom_fields_rejected reason={reason}" in caplog.text
+    assert "private-name@example.test" not in caplog.text
+
+
+def test_client_reserved_field_rejection_log_is_pii_free(monkeypatch, caplog):
+    monkeypatch.setattr(client_module, "API_KEY", "test-key")
+    monkeypatch.setattr(client_module, "BASE_URL", "https://example.lawruler.com")
+    client = client_module.LawRulerClient()
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ToolError, match="Invalid argument 'field_name'"):
+            client.set_custom_field(1, "Key", "private-name@example.test")
+
+    assert "custom_field_rejected reason=reserved_parameter" in caplog.text
+    assert "private-name@example.test" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ('{"Key":"private-name@example.test"}', "reserved_parameter"),
+        ('["private-name@example.test"]', "not_object"),
+        ('{"value":"private-name@example.test"', "invalid_json"),
+    ],
+)
+def test_client_custom_field_rejections_log_pii_free_reason(
+    payload, reason, monkeypatch, caplog
+):
+    monkeypatch.setattr(client_module, "API_KEY", "test-key")
+    monkeypatch.setattr(client_module, "BASE_URL", "https://example.lawruler.com")
+    client = client_module.LawRulerClient()
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ToolError, match="Invalid argument 'custom_fields_json'"):
+            client.create_lead_with_custom_fields(payload)
+
+    assert f"custom_fields_rejected reason={reason}" in caplog.text
+    assert "private-name@example.test" not in caplog.text

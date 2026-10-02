@@ -2,28 +2,151 @@
 """LawRuler (Legal CRM) API client. Single-endpoint form-data POST API with API key auth."""
 
 import json
+import logging
+import math
 import os
-import sys
 import time
+from email.utils import parsedate_to_datetime
+
 import requests
 from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
 
 from lawruler_mcp import credentials
+from lawruler_mcp.validation import (
+    validate_field_name,
+    validate_portal_url,
+    validate_write_value,
+)
+from lawruler_mcp.errors import (
+    ArgumentError,
+    AuthenticationError,
+    MissingCredentialsError,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+    TransportError,
+    VendorHTTPError,
+)
 
 # Resolve credentials through the pluggable store (OS keyring -> .env file).
 credentials.load_into_environ(["LAWRULER_API_KEY", "LAWRULER_BASE_URL"])
 
 API_KEY = os.environ.get("LAWRULER_API_KEY", "")
-BASE_URL = os.environ.get("LAWRULER_BASE_URL", "").rstrip("/")
+BASE_URL = os.environ.get("LAWRULER_BASE_URL", "")
 REQUEST_TIMEOUT = (3.05, 30)
+logger = logging.getLogger(__name__)
+
+_VENDOR_REASONS = {
+    "invalid_request",
+    "invalid_api_key",
+    "unauthorized",
+    "forbidden",
+    "not_found",
+    "duplicate_record",
+    "validation_error",
+    "rate_limited",
+    "service_unavailable",
+    "internal_error",
+}
+
+
+def _safe_vendor_reason(response) -> str:
+    """Return only a known vendor code; never surface free-form response text."""
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        return "request_rejected"
+    if isinstance(payload, dict):
+        for field in ("code", "error", "reason"):
+            value = payload.get(field)
+            if isinstance(value, str) and value.casefold() in _VENDOR_REASONS:
+                return value.casefold()
+    return "request_rejected"
+
+
+def _is_failure_envelope(payload) -> bool:
+    """Recognize explicit JSON failure shapes without exposing their prose."""
+    if isinstance(payload, list):
+        return any(_is_failure_envelope(item) for item in payload)
+    if not isinstance(payload, dict):
+        return True
+    if not payload:
+        return True
+    normalized = {str(key).casefold(): value for key, value in payload.items()}
+    if normalized.get("success") is False or normalized.get("ok") is False:
+        return True
+    if any(
+        isinstance(normalized.get(key), str) and normalized[key].casefold() == "false"
+        for key in ("success", "ok")
+    ):
+        return True
+    status = normalized.get("status")
+    if isinstance(status, str) and status.casefold() in {"error", "failed", "failure"}:
+        return True
+    if isinstance(status, int) and status >= 400:
+        return True
+    for field in ("error", "errors"):
+        value = normalized.get(field)
+        if (
+            value is not None
+            and value is not False
+            and value != ""
+            and value != []
+            and value != {}
+        ):
+            return True
+    return any(
+        _is_failure_envelope(normalized[key])
+        for key in ("response", "result")
+        if isinstance(normalized.get(key), (dict, list))
+    )
+
+
+def _retry_after_seconds(value) -> int:
+    """Parse Retry-After without shortening a vendor-requested delay."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        try:
+            seconds = parsedate_to_datetime(value).timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return 10
+    if not math.isfinite(seconds):
+        return 10
+    return max(0, math.ceil(seconds))
 
 
 def _endpoint():
     if not API_KEY or not BASE_URL:
-        raise RuntimeError(
-            "LAWRULER_API_KEY and LAWRULER_BASE_URL must be set. Run lawruler-mcp-setup."
-        )
-    return f"{BASE_URL}/api-legalcrmapp.aspx"
+        logger.error("client_configuration_rejected reason=missing_credentials")
+        raise MissingCredentialsError()
+    return f"{validate_portal_url(BASE_URL)}/api-legalcrmapp.aspx"
+
+
+def _compact_fields(fields: dict) -> dict:
+    """Apply the shared write boundary, preserving original accepted values."""
+    return {
+        key: value for key, value in fields.items() if validate_write_value(key, value)
+    }
+
+
+def _validated_fields(fields: dict, argument: str = "field_name") -> dict:
+    # Check all names first, then all values, before normalized aliases can merge.
+    names = {key: validate_field_name(key, argument) for key in fields}
+    return {names[key]: value for key, value in _compact_fields(fields).items()}
+
+
+def _validated_create_fields(fields: dict) -> dict:
+    """Shared create boundary, applied to the final merged API field set."""
+    data = _compact_fields(fields)
+    if not (data.get("FullName") or (data.get("FirstName") and data.get("LastName"))):
+        raise ArgumentError("lead", "full_name or both first_name and last_name")
+    if not data.get("CellPhone"):
+        raise ArgumentError("cell_phone", "a non-empty cell phone required by LawRuler")
+    if not data.get("Email1"):
+        raise ArgumentError("email", "a non-empty primary email required by LawRuler")
+    return data
 
 
 def _xml_to_dict(xml_str: str) -> dict:
@@ -35,12 +158,26 @@ def _xml_to_dict(xml_str: str) -> dict:
             forbid_entities=True,
             forbid_external=True,
         )
-        result = {}
-        for child in root:
-            result[child.tag] = child.text
-        return result
+        if root.tag.rsplit("}", 1)[-1].casefold() in {"error", "errors"}:
+            return {"error": "request_rejected"}
+
+        def children(element):
+            return {
+                child.tag.rsplit("}", 1)[-1]: children(child)
+                if len(child)
+                else child.text
+                for child in element
+            }
+
+        payload = children(root)
+        if not payload:
+            raise VendorHTTPError(200, "invalid_response")
+        return payload
+    except DefusedXmlException:
+        logger.warning("xml_response_rejected reason=unsafe_markup")
+        raise
     except ET.ParseError:
-        return {"raw": xml_str}
+        raise VendorHTTPError(200, "invalid_response") from None
 
 
 class LawRulerClient:
@@ -51,44 +188,67 @@ class LawRulerClient:
     def _post(self, data: dict) -> dict:
         data = dict(data)
         data["Key"] = API_KEY
+        retry_after = 10
+        waited = 0
         for attempt in range(3):
-            resp = self.session.post(
-                self.endpoint,
-                data=data,
-                timeout=REQUEST_TIMEOUT,
-            )
-            if resp.status_code == 429:
-                try:
-                    retry_after = int(resp.headers.get("Retry-After", 10))
-                except (ValueError, TypeError):
-                    retry_after = 10
-                print(f"Rate limited. Waiting {retry_after}s...", file=sys.stderr)
-                time.sleep(retry_after)
-                continue
-            if not resp.ok:
-                raise RuntimeError(
-                    f"LawRuler API error {resp.status_code}: {resp.text[:400]}"
+            try:
+                resp = self.session.post(
+                    self.endpoint,
+                    data=data,
+                    timeout=REQUEST_TIMEOUT,
+                    allow_redirects=False,
                 )
-            # Try JSON first, fall back to text
+            except requests.Timeout:
+                raise TransportError(timed_out=True) from None
+            except requests.ConnectionError:
+                raise TransportError(timed_out=False) from None
+            if resp.status_code == 429:
+                retry_after = _retry_after_seconds(resp.headers.get("Retry-After"))
+                if attempt < 2:
+                    remaining = 60 - waited
+                    if retry_after > remaining:
+                        raise RateLimitError(retry_after)
+                    time.sleep(retry_after)
+                    waited += retry_after
+                continue
+            if resp.status_code == 401:
+                raise AuthenticationError()
+            if resp.status_code == 403:
+                raise PermissionDeniedError()
+            if resp.status_code == 404:
+                raise NotFoundError()
+            if not 200 <= resp.status_code < 300:
+                raise VendorHTTPError(resp.status_code, _safe_vendor_reason(resp))
+            # A 200 response can still carry a vendor failure envelope.
             ct = resp.headers.get("Content-Type", "")
             if "json" in ct:
                 try:
-                    return resp.json()
+                    payload = resp.json()
                 except ValueError:
-                    raise RuntimeError(
-                        f"LawRuler API returned invalid JSON ({resp.status_code}): "
-                        f"{resp.text[:200]}"
-                    )
+                    raise VendorHTTPError(
+                        resp.status_code, "invalid_response"
+                    ) from None
+                if _is_failure_envelope(payload):
+                    raise VendorHTTPError(200, _safe_vendor_reason(resp))
+                return payload
             text = resp.text.strip()
             if text.startswith("{") or text.startswith("["):
                 try:
-                    return json.loads(text)
-                except json.JSONDecodeError as e:
-                    raise RuntimeError(f"LawRuler API returned invalid JSON: {e}")
+                    payload = json.loads(text)
+                    if _is_failure_envelope(payload):
+                        raise VendorHTTPError(200, _safe_vendor_reason(resp))
+                    return payload
+                except json.JSONDecodeError:
+                    raise VendorHTTPError(
+                        resp.status_code, "invalid_response"
+                    ) from None
             if text.startswith("<"):
-                return _xml_to_dict(text)
-            return {"response": text}
-        raise RuntimeError("Max retries exceeded")
+                payload = _xml_to_dict(text)
+                if _is_failure_envelope(payload):
+                    raise VendorHTTPError(200, _safe_vendor_reason(resp))
+                return payload
+            raise VendorHTTPError(200, "request_rejected")
+        raise RateLimitError(retry_after)
 
     def _get(self, params: dict) -> dict:
         # LawRuler API is POST-only; Key must be in POST body, not query string.
@@ -206,9 +366,13 @@ class LawRulerClient:
             data["Language"] = language
         if disable_dup_check:
             data["dupcheck"] = "0"
-        return self._post(data)
+        return self._post(_validated_create_fields(data))
 
     def update_lead(self, lead_id: int, override: bool = True, **fields) -> dict:
+        # Validate every name before dropping empty values or counting changes.
+        fields = _validated_fields(fields)
+        if not fields:
+            raise ArgumentError("fields", "at least one non-empty changed field")
         data = {
             "LeadID": str(lead_id),
             "ReturnJSON": "True",
@@ -230,109 +394,32 @@ class LawRulerClient:
         )
 
     def update_lead_status(self, lead_id: int, status: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Status": status,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Status=status)
 
     def update_lead_assignee(self, lead_id: int, assignee: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "LeadAssignee": assignee,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, LeadAssignee=assignee)
 
     def update_lead_owner(self, lead_id: int, owner: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "LeadOwner": owner,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, LeadOwner=owner)
 
     def add_tags_to_lead(self, lead_id: int, tags: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Tags": tags,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Tags=tags)
 
     def update_lead_case_type(self, lead_id: int, case_type: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "CaseType": case_type,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, CaseType=case_type)
 
     def update_lead_summary(self, lead_id: int, summary: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Summary": summary,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Summary=summary)
 
     def add_conversation_note(self, lead_id: int, conversation: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Conversation": conversation,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Conversation=conversation)
 
     def update_lead_language(self, lead_id: int, language: str) -> dict:
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "Language": language,
-                "overridelead": "true",
-                "ReturnJSON": "True",
-            }
-        )
+        return self.update_lead(lead_id, Language=language)
 
     def set_custom_field(self, lead_id: int, field_name: str, value: str) -> dict:
-        RESERVED = {
-            "leadid",
-            "overridelead",
-            "key",
-            "returnjson",
-            "returnxml",
-            "operation",
-        }
-        if field_name.casefold() in RESERVED:
-            raise ValueError(f"'{field_name}' is a reserved parameter name")
-        return self._post(
-            {
-                "LeadID": str(lead_id),
-                "overridelead": "true",
-                "ReturnJSON": "True",
-                field_name: value,
-            }
-        )
-
-    # Parameters that must never be overridden by caller-supplied JSON.
-    _RESERVED = frozenset(
-        {"key", "operation", "leadid", "overridelead", "returnjson", "returnxml"}
-    )
+        field_name = validate_field_name(field_name)
+        return self.update_lead(lead_id, **{field_name: value})
 
     def create_lead_with_custom_fields(
         self, custom_fields_json: str, **standard_fields
@@ -343,15 +430,21 @@ class LawRulerClient:
         matching reserved LawRuler parameters (``key``, ``operation``, ``leadid``,
         ``overridelead``, ``returnjson``, ``returnxml``) are rejected to prevent a
         caller from injecting an ``Operation=DeleteAll`` or similar payload.
+        Standard fields use API names (FullName or FirstName + LastName,
+        CellPhone, Email1); the merged payload must satisfy create_lead checks.
         """
-        custom = json.loads(custom_fields_json) if custom_fields_json else {}
+        try:
+            custom = json.loads(custom_fields_json) if custom_fields_json else {}
+        except json.JSONDecodeError:
+            logger.warning("custom_fields_rejected reason=invalid_json")
+            raise ArgumentError("custom_fields_json", "a JSON object") from None
         if not isinstance(custom, dict):
-            raise ValueError("custom_fields_json must be a JSON object")
-        bad = self._RESERVED & {str(k).casefold() for k in custom.keys()}
-        if bad:
-            raise ValueError(f"Reserved keys in custom_fields_json: {bad}")
+            logger.warning("custom_fields_rejected reason=not_object")
+            raise ArgumentError("custom_fields_json", "a JSON object")
+        custom = _validated_fields(custom, "custom_fields_json")
+        standard_fields = _validated_fields(standard_fields)
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
-        return self._post(data)
+        return self._post(_validated_create_fields(data))
 
     def update_lead_contact_info(
         self,
@@ -364,7 +457,7 @@ class LawRulerClient:
         state: str = "",
         zip_code: str = "",
     ) -> dict:
-        data = {"LeadID": str(lead_id), "overridelead": "true", "ReturnJSON": "True"}
+        data = {}
         if cell_phone:
             data["CellPhone"] = cell_phone
         if home_phone:
@@ -379,4 +472,4 @@ class LawRulerClient:
             data["State"] = state
         if zip_code:
             data["Zip"] = zip_code
-        return self._post(data)
+        return self.update_lead(lead_id, **data)

@@ -1,11 +1,101 @@
 #!/usr/bin/env python3
-"""LawRuler (Legal CRM) MCP server — FastMCP tools for lead/intake management."""
+"""LawRuler (Legal CRM) MCP server tools for lead/intake management."""
 
 import json
-from mcp.server.fastmcp import FastMCP
-from lawruler_mcp.client import LawRulerClient
+import logging
+import sys
 
-mcp = FastMCP(
+import requests
+
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ResourceNotFoundError,
+    ToolError,
+    UnexpectedToolError,
+)
+from pydantic import ValidationError
+
+from lawruler_mcp.client import BASE_URL, LawRulerClient
+from lawruler_mcp.errors import ArgumentError, LawRulerToolError
+from lawruler_mcp.validation import validate_portal_url
+
+logger = logging.getLogger(__name__)
+
+
+class SafeMCPServer(MCPServer):
+    """Keep tool errors useful while preventing SDK exception logging leaks."""
+
+    async def call_tool(self, name: str, arguments: dict, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except Exception as exc:
+            # Unwrap only SDK-known tool wrappers. Arbitrary application exceptions
+            # may carry a misleading cause and must remain masked.
+            cause = exc
+            if type(exc) in (UnexpectedToolError, ToolError) and exc.__cause__:
+                cause = exc.__cause__
+            if (
+                isinstance(exc, ToolError)
+                and not isinstance(exc, UnexpectedToolError)
+                and isinstance(cause, ValidationError)
+            ):
+                message = _safe_validation_message(self, name, cause)
+                logger.info("tool_call_rejected reason=argument_validation")
+            elif isinstance(cause, LawRulerToolError):
+                message = str(cause)
+                logger.info("tool_call_failed reason=anticipated")
+            elif isinstance(cause, requests.Timeout):
+                message = "LawRuler request timed out. The outcome is unknown; check whether the action completed before retrying."
+                logger.info("tool_call_failed reason=timeout")
+            elif isinstance(cause, requests.ConnectionError):
+                message = "Could not connect to LawRuler. The outcome is unknown; check whether the action completed before retrying."
+                logger.info("tool_call_failed reason=connection")
+            else:
+                logger.error("tool_call_failed reason=unexpected")
+                message = "LawRuler tool execution failed."
+            raise ToolError(message) from None
+
+    async def read_resource(self, uri, context=None):
+        try:
+            return await super().read_resource(uri, context)
+        except ResourceNotFoundError:
+            logger.info("resource_read_failed reason=not_found")
+            raise ResourceNotFoundError(
+                "Requested LawRuler resource was not found."
+            ) from None
+        except Exception:
+            logger.error("resource_read_failed reason=unexpected")
+            raise ResourceError(
+                "Unable to read the requested LawRuler resource."
+            ) from None
+
+
+def _safe_validation_message(
+    server: SafeMCPServer, tool_name: str, error: ValidationError
+) -> str:
+    definitions = {
+        tool.name: tool.parameters for tool in server._tool_manager.list_tools()
+    }
+    properties = definitions.get(tool_name, {}).get("properties", {})
+    allowed_names = set(properties)
+    for issue in error.errors():
+        location = issue.get("loc", ())
+        argument = next(
+            (
+                part
+                for part in location
+                if isinstance(part, str) and part in allowed_names
+            ),
+            None,
+        )
+        if argument is not None:
+            shape = properties[argument].get("type", "valid input")
+            return f"Invalid argument '{argument}': expected {shape}."
+    return "Invalid arguments: check the tool's documented input names and types."
+
+
+mcp = SafeMCPServer(
     "lawruler",
     instructions=(
         "LawRuler Legal CRM. Create and manage leads/intakes for law firms. "
@@ -314,10 +404,12 @@ def update_lead_fields(
     if custom_fields_json:
         try:
             custom = json.loads(custom_fields_json)
-        except json.JSONDecodeError as e:
-            return json.dumps({"error": f"Invalid custom_fields_json: {e}"})
+        except json.JSONDecodeError:
+            logger.warning("custom_fields_rejected reason=invalid_json")
+            raise ArgumentError("custom_fields_json", "a JSON object") from None
         if not isinstance(custom, dict):
-            return json.dumps({"error": "custom_fields_json must be a JSON object"})
+            logger.warning("custom_fields_rejected reason=not_object")
+            raise ArgumentError("custom_fields_json", "a JSON object")
         RESERVED = {
             "leadid",
             "overridelead",
@@ -328,7 +420,8 @@ def update_lead_fields(
         }
         bad = RESERVED & {str(k).casefold() for k in custom.keys()}
         if bad:
-            return json.dumps({"error": f"Reserved keys in custom_fields_json: {bad}"})
+            logger.warning("custom_fields_rejected reason=reserved_parameter")
+            raise ArgumentError("custom_fields_json", "an object without reserved keys")
         fields.update(custom)
     return json.dumps(_c().update_lead(lead_id, override=True, **fields), indent=2)
 
@@ -424,8 +517,7 @@ records unexpectedly.
 **Mitigations in place (as of wt/secfix):**
 - `set_custom_field` raises `ValueError` if `field_name` matches any reserved param (case-insensitive).
 - `update_lead_fields` blocks reserved keys in the `custom_fields_json` dict before the API call.
-- `create_lead_with_custom_fields` (client layer) does NOT enforce this blocklist — agents
-  should prefer the MCP tools over calling the client directly.
+- `create_lead_with_custom_fields` (client layer) enforces the same blocklist.
 
 **Reserved keys (case-insensitive):** `leadid`, `overridelead`, `key`, `returnjson`,
 `returnxml`, `operation`.
@@ -499,6 +591,12 @@ For each LeadID in your current working set:
 
 
 def main():
+    if BASE_URL:
+        try:
+            validate_portal_url(BASE_URL)
+        except LawRulerToolError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
     mcp.run()
 
 
