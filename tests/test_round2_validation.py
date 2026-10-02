@@ -285,8 +285,9 @@ def test_nested_custom_values_cannot_hide_nul(client, value):
 
 
 def test_shared_meaningful_normalization():
-    # U+00A8 becomes SPACE + COMBINING DIAERESIS under NFKC: visible content.
-    assert meaningful_value("\u00a8")
+    # NFKC leaves SPACE + an unattached mark; neither provides a visible base.
+    assert not meaningful_value("\u00a8")
+    assert meaningful_value("A\u0308")
     assert not meaningful_value("\u200b\u2029\x1f")
     assert meaningful_value(0) and meaningful_value(False)
     assert meaningful_value("José García")

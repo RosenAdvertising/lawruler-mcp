@@ -14,9 +14,9 @@ from defusedxml.common import DefusedXmlException
 
 from lawruler_mcp import credentials
 from lawruler_mcp.validation import (
-    meaningful_value,
     validate_field_name,
     validate_portal_url,
+    validate_write_value,
 )
 from lawruler_mcp.errors import (
     ArgumentError,
@@ -125,14 +125,28 @@ def _endpoint():
 
 
 def _compact_fields(fields: dict) -> dict:
-    """Omit absent/blank values while preserving explicit zero and false."""
-    return {key: value for key, value in fields.items() if meaningful_value(value)}
+    """Apply the shared write boundary, preserving original accepted values."""
+    return {
+        key: value for key, value in fields.items() if validate_write_value(key, value)
+    }
 
 
 def _validated_fields(fields: dict, argument: str = "field_name") -> dict:
     # Check all names first, then all values, before normalized aliases can merge.
     names = {key: validate_field_name(key, argument) for key in fields}
     return {names[key]: value for key, value in _compact_fields(fields).items()}
+
+
+def _validated_create_fields(fields: dict) -> dict:
+    """Shared create boundary, applied to the final merged API field set."""
+    data = _compact_fields(fields)
+    if not (data.get("FullName") or (data.get("FirstName") and data.get("LastName"))):
+        raise ArgumentError("lead", "full_name or both first_name and last_name")
+    if not data.get("CellPhone"):
+        raise ArgumentError("cell_phone", "a non-empty cell phone required by LawRuler")
+    if not data.get("Email1"):
+        raise ArgumentError("email", "a non-empty primary email required by LawRuler")
+    return data
 
 
 def _xml_to_dict(xml_str: str) -> dict:
@@ -352,20 +366,7 @@ class LawRulerClient:
             data["Language"] = language
         if disable_dup_check:
             data["dupcheck"] = "0"
-        data = _compact_fields(data)
-        if not (
-            data.get("FullName") or (data.get("FirstName") and data.get("LastName"))
-        ):
-            raise ArgumentError("lead", "full_name or both first_name and last_name")
-        if not data.get("CellPhone"):
-            raise ArgumentError(
-                "cell_phone", "a non-empty cell phone required by LawRuler"
-            )
-        if not data.get("Email1"):
-            raise ArgumentError(
-                "email", "a non-empty primary email required by LawRuler"
-            )
-        return self._post(data)
+        return self._post(_validated_create_fields(data))
 
     def update_lead(self, lead_id: int, override: bool = True, **fields) -> dict:
         # Validate every name before dropping empty values or counting changes.
@@ -429,6 +430,8 @@ class LawRulerClient:
         matching reserved LawRuler parameters (``key``, ``operation``, ``leadid``,
         ``overridelead``, ``returnjson``, ``returnxml``) are rejected to prevent a
         caller from injecting an ``Operation=DeleteAll`` or similar payload.
+        Standard fields use API names (FullName or FirstName + LastName,
+        CellPhone, Email1); the merged payload must satisfy create_lead checks.
         """
         try:
             custom = json.loads(custom_fields_json) if custom_fields_json else {}
@@ -441,7 +444,7 @@ class LawRulerClient:
         custom = _validated_fields(custom, "custom_fields_json")
         standard_fields = _validated_fields(standard_fields)
         data = {**standard_fields, **custom, "ReturnJSON": "True"}
-        return self._post(data)
+        return self._post(_validated_create_fields(data))
 
     def update_lead_contact_info(
         self,
