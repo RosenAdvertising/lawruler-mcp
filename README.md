@@ -6,7 +6,7 @@
 
 MCP server for LawRuler Legal CRM. Provides 15 tools for lead/intake creation, retrieval, and management.
 
-Requires Python MCP SDK >=2.2,<3 (target protocol: 2026-07-28).
+Requires Python MCP SDK >=2.3,<3 (target protocol: 2026-07-28).
 
 ## Setup
 
@@ -27,6 +27,30 @@ lawruler-mcp-verify  # test connection
   }
 }
 ```
+
+## HTTP mode
+
+Stdio, above, stays the default. Set `LAWRULER_MCP_TRANSPORT=streamable-http` to serve the same server over stateless Streamable HTTP (protocol 2026-07-28). Each request is one POST to `/mcp`. There is no initialize handshake and no `Mcp-Session-Id`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LAWRULER_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http` |
+| `LAWRULER_MCP_HOST` | `127.0.0.1` | Bind address. A non-loopback host requires `LAWRULER_MCP_ALLOWED_HOSTS`. |
+| `PORT` | `8080` | TCP port. A non-integer value exits. |
+| `LAWRULER_MCP_ALLOWED_HOSTS` | unset | Comma-separated `Host` values. Required when the bind address is not loopback. |
+| `LAWRULER_MCP_ALLOWED_ORIGINS` | unset | Optional comma-separated `Origin` values checked with those hosts. |
+| `LAWRULER_API_KEY` |  | LawRuler API key, from the environment (or the same credential store as stdio). Never from the request. |
+| `LAWRULER_BASE_URL` |  | Portal origin, for example `https://yourfirm.lawruler.com`. |
+
+```bash
+LAWRULER_MCP_TRANSPORT=streamable-http \
+LAWRULER_API_KEY=your_api_key \
+LAWRULER_BASE_URL=https://yourfirm.lawruler.com \
+PORT=8080 \
+lawruler-mcp
+```
+
+The endpoint is `http://127.0.0.1:8080/mcp`.
 
 ## Credentials
 

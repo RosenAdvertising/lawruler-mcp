@@ -3,11 +3,14 @@
 
 import json
 import logging
+import os
 import sys
+from importlib.metadata import version as _dist_version
 
 import requests
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.server.mcpserver.exceptions import (
     ResourceError,
     ResourceNotFoundError,
@@ -95,8 +98,18 @@ def _safe_validation_message(
     return "Invalid arguments: check the tool's documented input names and types."
 
 
+def _package_version() -> str:
+    """Package version for MCP server identity. Never empty."""
+    found = _dist_version("lawruler-mcp").strip()
+    if not found:
+        raise RuntimeError("lawruler-mcp package version is empty")
+    return found
+
+
 mcp = SafeMCPServer(
     "lawruler",
+    title="LawRuler",
+    version=_package_version(),
     instructions=(
         "LawRuler Legal CRM. Create and manage leads/intakes for law firms. "
         "All records are 'leads' or 'intakes' — use LeadID to retrieve or update existing records. "
@@ -590,6 +603,76 @@ For each LeadID in your current working set:
 4. SECURITY: Omit SSN and DOB from any output. Show only name, status, and contact method."""
 
 
+STREAMABLE_HTTP_TRANSPORT = "streamable-http"
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _requested_transport() -> str:
+    """stdio unless LAWRULER_MCP_TRANSPORT names another transport."""
+    value = os.environ.get("LAWRULER_MCP_TRANSPORT", "stdio").strip().lower()
+    return value or "stdio"
+
+
+def _host() -> str:
+    return os.environ.get("LAWRULER_MCP_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def _port() -> int:
+    raw = os.environ.get("PORT", "8080").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"PORT must be an integer (got {raw!r}).", file=sys.stderr)
+        sys.exit(1)
+
+
+def _csv_env(name: str) -> list[str]:
+    return [
+        item.strip() for item in os.environ.get(name, "").split(",") if item.strip()
+    ]
+
+
+def _transport_security() -> TransportSecuritySettings | None:
+    """Origin checks are required off loopback. The SDK covers loopback itself."""
+    host = _host()
+    if host in _LOOPBACK_HOSTS:
+        return None
+    allowed_hosts = _csv_env("LAWRULER_MCP_ALLOWED_HOSTS")
+    if not allowed_hosts:
+        print(
+            "LAWRULER_MCP_ALLOWED_HOSTS is required when LAWRULER_MCP_HOST "
+            f"is not loopback ({host!r}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=_csv_env("LAWRULER_MCP_ALLOWED_ORIGINS"),
+    )
+
+
+def create_serve_app():
+    """Stateless Streamable HTTP app. JSON responses stay on the SDK SSE default."""
+    return mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        host=_host(),
+        stateless_http=True,
+        transport_security=_transport_security(),
+    )
+
+
+def _serve_streamable_http() -> None:
+    import uvicorn
+
+    uvicorn.run(
+        create_serve_app(),
+        host=_host(),
+        port=_port(),
+        access_log=False,
+    )
+
+
 def main():
     if BASE_URL:
         try:
@@ -597,7 +680,18 @@ def main():
         except LawRulerToolError as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(1)
-    mcp.run()
+    transport = _requested_transport()
+    if transport == "stdio":
+        mcp.run()
+    elif transport == STREAMABLE_HTTP_TRANSPORT:
+        _serve_streamable_http()
+    else:
+        print(
+            "LAWRULER_MCP_TRANSPORT must be 'stdio' or "
+            f"'{STREAMABLE_HTTP_TRANSPORT}' (got {transport!r}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
