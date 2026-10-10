@@ -32,6 +32,8 @@ lawruler-mcp-verify  # test connection
 
 Stdio, above, stays the default. Set `LAWRULER_MCP_TRANSPORT=streamable-http` to serve the same server over stateless Streamable HTTP (protocol 2026-07-28). Each request is one POST to `/mcp`. There is no initialize handshake and no `Mcp-Session-Id`.
 
+> **Security: this endpoint has no authentication and no TLS.** Anyone who can reach the port can run every tool, including write and delete tools, with this server's vendor credentials. Keep the default loopback bind (`127.0.0.1`), or put the server behind an authenticating TLS proxy on a private network. `LAWRULER_MCP_ALLOWED_HOSTS` and `LAWRULER_MCP_ALLOWED_ORIGINS` protect against browser DNS rebinding, not against direct callers. A proxy in front of it needs connection and idle timeouts: a legacy-style `GET /mcp` with `Accept: text/event-stream` holds a stream open until the client disconnects.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `LAWRULER_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http` |

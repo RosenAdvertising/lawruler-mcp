@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
+import subprocess
+import sys
 from typing import Any
 
 import httpx2 as httpx
@@ -340,3 +343,57 @@ def test_discover_advertises_protocol_and_version(monkeypatch) -> None:
     assert PROTOCOL_VERSION in result["supportedVersions"]
     version = result["_meta"][SERVER_INFO_META_KEY]["version"]
     assert isinstance(version, str) and version.strip()
+
+
+def test_empty_transport_selects_stdio(monkeypatch) -> None:
+    for raw in ("", "   "):
+        monkeypatch.setenv("LAWRULER_MCP_TRANSPORT", raw)
+        monkeypatch.setattr(server, "BASE_URL", "")
+        called: list[str] = []
+        monkeypatch.setattr(server.mcp, "run", lambda: called.append("run"))
+        server.main()
+        assert called == ["run"]
+        assert server._requested_transport() == "stdio"
+
+
+def test_empty_host_yields_loopback(monkeypatch) -> None:
+    for raw in ("", "   "):
+        monkeypatch.setenv("LAWRULER_MCP_HOST", raw)
+        assert server._host() == "127.0.0.1"
+
+
+def test_uppercase_localhost_is_non_loopback(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LAWRULER_MCP_HOST", "LOCALHOST")
+    monkeypatch.delenv("LAWRULER_MCP_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        server.create_serve_app()
+    assert exc.value.code == 1
+    assert "LAWRULER_MCP_ALLOWED_HOSTS" in capsys.readouterr().err
+
+
+def test_server_import_without_installed_distribution() -> None:
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(server.__file__)))
+    script = (
+        "import importlib.metadata\n"
+        "_real_version = importlib.metadata.version\n"
+        "def _fake_version(name):\n"
+        "    if name == 'lawruler-mcp':\n"
+        "        raise importlib.metadata.PackageNotFoundError(name)\n"
+        "    return _real_version(name)\n"
+        "importlib.metadata.version = _fake_version\n"
+        "import lawruler_mcp.server as s\n"
+        "print(s._package_version())\n"
+    )
+    env = dict(os.environ)
+    env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
+    env["PYTHONPATH"] = repo_root + os.pathsep + env.get("PYTHONPATH", "")
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        env=env,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "0.0.0+local"

@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import sys
-from importlib.metadata import version as _dist_version
+import importlib.metadata
 
 import requests
 
@@ -100,7 +100,13 @@ def _safe_validation_message(
 
 def _package_version() -> str:
     """Package version for MCP server identity. Never empty."""
-    found = _dist_version("lawruler-mcp").strip()
+    try:
+        found = importlib.metadata.version("lawruler-mcp").strip()
+    except importlib.metadata.PackageNotFoundError:
+        fallback = getattr(sys.modules.get("lawruler_mcp"), "__version__", "") or ""
+        found = str(fallback).strip()
+        if not found:
+            return "0.0.0+local"
     if not found:
         raise RuntimeError("lawruler-mcp package version is empty")
     return found
