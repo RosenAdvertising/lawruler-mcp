@@ -5,11 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "lawruler-mcp"
 version = "0.1.2"
-description = "LawRuler Legal CRM MCP server for lead and intake management"
+description = "MCP server for LawRuler: leads, intake status, notes and custom fields."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "claude"]
+classifiers = [
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
 dependencies = [
     "defusedxml>=0.7.1,<1",
     "mcp[cli]>=2.3,<3",
@@ -31,6 +42,7 @@ lawruler-mcp-verify = "lawruler_mcp.setup.verify:main"
 
 [project.urls]
 Homepage = "https://github.com/RosenAdvertising/lawruler-mcp"
+Repository = "https://github.com/RosenAdvertising/lawruler-mcp"
 Issues = "https://github.com/RosenAdvertising/lawruler-mcp/issues"
 
 [tool.pyright]
