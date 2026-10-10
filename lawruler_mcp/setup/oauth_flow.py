@@ -13,6 +13,16 @@ from lawruler_mcp.validation import validate_portal_url
 
 REQUEST_TIMEOUT = (3.05, 30)
 
+# Same configuration as the README's "Usage with Claude Desktop" section.
+CLAUDE_DESKTOP_CONFIG = """{
+  "mcpServers": {
+    "lawruler": {
+      "command": "uv",
+      "args": ["run", "--locked", "--directory", "/absolute/path/to/lawruler-mcp", "lawruler-mcp"]
+    }
+  }
+}"""
+
 
 def test_connection(base_url: str, api_key: str) -> tuple[int, str]:
     endpoint = f"{validate_portal_url(base_url)}/api-legalcrmapp.aspx"
@@ -124,8 +134,11 @@ def _run_setup():
         print(f"✓ Credentials saved to {credentials.ENV_FILE} (0600).")
     print()
     print("Add to your Claude Desktop config:")
+    print(CLAUDE_DESKTOP_CONFIG)
+    print()
     print(
-        json.dumps({"mcpServers": {"lawruler": {"command": "lawruler-mcp"}}}, indent=2)
+        "Replace /absolute/path/to/lawruler-mcp with the path of your clone, "
+        "then restart Claude Desktop."
     )
 
 
