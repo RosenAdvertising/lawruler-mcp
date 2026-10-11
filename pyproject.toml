@@ -7,7 +7,7 @@ name = "lawruler-mcp"
 version = "0.1.2"
 description = "MCP server for LawRuler: leads, intake status, notes and custom fields."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 keywords = ["lawruler", "mcp", "legal", "crm", "intake", "lead-management", "claude"]
 classifiers = [
@@ -16,9 +16,9 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business",
 ]
 dependencies = [

@@ -1,7 +1,7 @@
 # LawRuler MCP server
 
 [![CI](https://github.com/RosenAdvertising/lawruler-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/RosenAdvertising/lawruler-mcp/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![MCP 2026-07-28](https://img.shields.io/badge/MCP-2026--07--28-7C3AED.svg)](https://modelcontextprotocol.io)
 [![PyPI version](https://img.shields.io/pypi/v/lawruler-mcp.svg)](https://pypi.org/project/lawruler-mcp/)
@@ -59,7 +59,7 @@ The server also registers three prompts and three resources.
 
 ## Requirements
 
-- Python 3.10 or later.
+- Python 3.12+.
 - A LawRuler portal and API key (in LawRuler: **Setup → 3rd Party Integrations**).
 - An MCP client such as Claude Desktop.
 
